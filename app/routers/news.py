@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Query, Depends, BackgroundTasks
 from typing import List, Optional
 from app.schemas.news_schema import NewsItemRead
 from app.core.constants import TechCategory
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.database import get_session
+from app.models.news import NewsItem
+from app.services.ingestion.orchestrator import run_all_ingestions
 
 router = APIRouter(prefix="/news", tags=["News"])
 
@@ -15,15 +17,41 @@ def get_news(
     session: Session = Depends(get_session)
 ):
     """
-    Placeholder endpoint to retrieve daily tech news.
-    Filters by category and search queries will be implemented in v0.2.0.
+    Retrieve stored daily tech news articles.
+    Supports filtering by category, search queries matching title or content,
+    and sorting by publication date.
     """
-    return []
+    statement = select(NewsItem).order_by(NewsItem.published_at.desc())
+    
+    if category:
+        statement = statement.where(NewsItem.category == category)
+        
+    if q:
+        # SQLite LIKE is case-insensitive for standard characters
+        statement = statement.where(
+            NewsItem.title.like(f"%{q}%") | NewsItem.raw_content.like(f"%{q}%")
+        )
+        
+    statement = statement.limit(limit)
+    results = session.exec(statement).all()
+    return results
 
 @router.post("/ingest", response_model=dict)
-def trigger_ingestion(session: Session = Depends(get_session)):
+def trigger_ingestion(
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session)
+):
     """
-    Placeholder endpoint to trigger feed ingestion manually.
-    Implementation will be active in v0.2.0.
+    Trigger feed ingestion manually. Runs the ingestion loaders in a non-blocking background task.
     """
-    return {"status": "ingestion_triggered", "detail": "News ingestion tasks will run in the background (v0.2.0)."}
+    def run_ingestion_in_background():
+        from app.database import engine
+        with Session(engine) as bg_session:
+            run_all_ingestions(bg_session)
+
+    background_tasks.add_task(run_ingestion_in_background)
+    return {
+        "status": "ingestion_triggered",
+        "detail": "News ingestion tasks have been scheduled to run in the background."
+    }
+

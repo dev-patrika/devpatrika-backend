@@ -1,1 +1,3 @@
-# v0.2.0 Ingestion Services Package
+from .orchestrator import run_all_ingestions
+
+__all__ = ["run_all_ingestions"]
