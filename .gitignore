@@ -1,0 +1,25 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE files
+.vscode/
+.idea/
+
+# Local databases
+dev_patrika.db
+dev_patrika.db-journal
+
+# Chroma DB files
+data/chroma_db/
+
+# Local env files
+.env
+.env*.local
