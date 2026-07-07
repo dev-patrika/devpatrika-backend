@@ -8,7 +8,7 @@ if settings.DATABASE_URL.startswith("sqlite"):
 
 engine = create_engine(
     settings.DATABASE_URL,
-    echo=settings.DEBUG,
+    echo=False,
     connect_args=connect_args
 )
 

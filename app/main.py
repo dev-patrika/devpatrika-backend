@@ -5,6 +5,7 @@ from app.config import settings
 from app.database import init_db
 from app.routers import all_routers
 from app.core.exceptions import global_exception_handler
+from app.services.ingestion.scheduler import start_scheduler
 import logging
 
 # Initialize logging configuration
@@ -20,6 +21,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Database initialization failure: {str(e)}")
         raise e
+    
+    # Start the ingestion scheduler in the background
+    start_scheduler()
+    
     yield
     # Shutdown actions (none required for SQLite)
 
