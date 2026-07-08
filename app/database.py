@@ -14,6 +14,8 @@ engine = create_engine(
 
 def init_db():
     """Create database tables if they do not exist"""
+    # Import models here to ensure metadata registration
+    from app import models
     SQLModel.metadata.create_all(engine)
 
 def get_session():
