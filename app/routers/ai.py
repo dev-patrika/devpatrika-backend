@@ -11,8 +11,8 @@ def get_supported_models():
     Fully implemented in v0.5.0.
     """
     return [
-        {"provider": "Google", "model": "gemini-1.5-flash", "status": "active"},
-        {"provider": "Groq", "model": "llama3-70b-8192", "status": "inactive"},
+        {"provider": "Google", "model": "gemini-2.5-flash", "status": "active"},
+        {"provider": "Groq", "model": "openai/gpt-oss-120b", "status": "inactive"},
         {"provider": "Hugging Face", "model": "mistral-7b-instruct", "status": "inactive"}
     ]
 
