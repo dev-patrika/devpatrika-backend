@@ -42,16 +42,38 @@ def trigger_ingestion(
     session: Session = Depends(get_session)
 ):
     """
-    Trigger feed ingestion manually. Runs the ingestion loaders in a non-blocking background task.
+    Trigger feed ingestion manually. Runs the ingestion loaders and LLM processing in a non-blocking background task.
     """
     def run_ingestion_in_background():
         from app.database import engine
+        from app.services.processing.pipeline import process_pending_items
         with Session(engine) as bg_session:
             run_all_ingestions(bg_session)
+            process_pending_items(bg_session)
 
     background_tasks.add_task(run_ingestion_in_background)
     return {
         "status": "ingestion_triggered",
-        "detail": "News ingestion tasks have been scheduled to run in the background."
+        "detail": "News ingestion and AI processing tasks have been scheduled to run in the background."
+    }
+
+@router.post("/process", response_model=dict)
+def trigger_processing(
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session)
+):
+    """
+    Trigger AI processing manually to summarize and categorize pending items in the database.
+    """
+    def run_processing_in_background():
+        from app.database import engine
+        from app.services.processing.pipeline import process_pending_items
+        with Session(engine) as bg_session:
+            process_pending_items(bg_session)
+
+    background_tasks.add_task(run_processing_in_background)
+    return {
+        "status": "processing_triggered",
+        "detail": "AI processing of pending news and GitHub repositories has been scheduled in the background."
     }
 

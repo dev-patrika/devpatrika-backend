@@ -1,25 +1,67 @@
-from fastapi import APIRouter, Depends
-from typing import List
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query
+from typing import List, Optional
 from app.schemas.wiki_schema import WikiEntryRead
-from sqlmodel import Session
+from sqlmodel import Session, select
 from app.database import get_session
+from app.models.wiki import WikiEntry
 
 router = APIRouter(prefix="/wiki", tags=["Wiki"])
 
 @router.get("", response_model=List[WikiEntryRead])
-def get_wiki_entries(session: Session = Depends(get_session)):
+def get_wiki_entries(
+    q: Optional[str] = Query(default=None, description="Search query for wiki terms"),
+    session: Session = Depends(get_session)
+):
     """
-    Placeholder endpoint to retrieve trending terms wiki definitions.
-    Fully implemented in v0.4.0.
+    Retrieve stored Dev Wiki term definitions.
+    Supports autocompleting and filtering terms.
     """
-    return []
+    statement = select(WikiEntry)
+    if q:
+        statement = statement.where(WikiEntry.term.like(f"%{q}%"))
+    
+    results = session.exec(statement.order_by(WikiEntry.term.asc())).all()
+    return results
 
 @router.get("/{term}", response_model=WikiEntryRead)
 def get_wiki_entry(term: str, session: Session = Depends(get_session)):
     """
-    Placeholder endpoint to retrieve a single term definition.
-    Fully implemented in v0.4.0.
+    Retrieve a detailed wiki entry (definition, why it's trending, links) for a concept.
+    Matches case-insensitively.
     """
-    # Return placeholder error or mock since returning empty won't match WikiEntryRead schema (requires id etc)
-    from fastapi import HTTPException
-    raise HTTPException(status_code=404, detail=f"Term '{term}' not found. Wiki generation functionality arrives in v0.4.0.")
+    # Direct check
+    statement = select(WikiEntry).where(WikiEntry.term == term)
+    result = session.exec(statement).first()
+    
+    if not result:
+        # Case-insensitive fallback lookup
+        all_entries = session.exec(select(WikiEntry)).all()
+        for entry in all_entries:
+            if entry.term.lower() == term.lower():
+                return entry
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Wiki definition for term '{term}' not found. You can trigger it via POST /wiki/generate."
+        )
+    return result
+
+@router.post("/generate", response_model=dict)
+def trigger_wiki_generation(
+    term: str,
+    background_tasks: BackgroundTasks,
+    session: Session = Depends(get_session)
+):
+    """
+    Manually request/trigger the LangChain Wiki curator agent to write a wiki entry for a technical term.
+    """
+    def run_wiki_generation_in_background():
+        from app.database import engine
+        from app.services.processing.wiki_generator import generate_wiki_definition
+        with Session(engine) as bg_session:
+            generate_wiki_definition(term, bg_session)
+
+    background_tasks.add_task(run_wiki_generation_in_background)
+    return {
+        "status": "wiki_generation_triggered",
+        "detail": f"Wiki generation task for term '{term}' has been scheduled to run in the background."
+    }
