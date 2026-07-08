@@ -9,7 +9,7 @@ logger = logging.getLogger("dev-patrika.processing.llm")
 def get_llm(temperature: float = 0.0):
     """
     Initialize LLM engines with fallback mechanism.
-    Defaults to Groq (llama3-70b-8192) and falls back to Gemini (gemini-2.5-flash).
+    Defaults to Groq (openai/gpt-oss-120b) and falls back to Gemini (gemini-2.5-flash).
     """
     # Sync settings keys to environment variables for LangChain internal resolution if needed
     if settings.GROQ_API_KEY and not os.environ.get("GROQ_API_KEY"):
@@ -27,7 +27,7 @@ def get_llm(temperature: float = 0.0):
     # Initialize Groq Llama 3 Model
     # Use placeholder if key is missing to avoid instant instantiation crashes, allowing fallback to try next
     groq_llm = ChatGroq(
-        model="llama3-70b-8192",
+        model="openai/gpt-oss-120b",
         temperature=temperature,
         api_key=groq_key or "placeholder_key"
     )
