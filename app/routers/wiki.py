@@ -65,3 +65,13 @@ def trigger_wiki_generation(
         "status": "wiki_generation_triggered",
         "detail": f"Wiki generation task for term '{term}' has been scheduled to run in the background."
     }
+
+@router.get("/{term}/timeline", response_model=dict)
+def get_wiki_timeline(term: str, session: Session = Depends(get_session)):
+    """
+    Generate a chronological evolution timeline (Announcement -> Adoption -> Production -> Growth)
+    for a technical term.
+    """
+    from app.services.wiki_curator.timeline_generator import generate_technology_timeline
+    timeline = generate_technology_timeline(term, session)
+    return {"term": term, "timeline": timeline}

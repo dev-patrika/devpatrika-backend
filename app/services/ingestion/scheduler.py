@@ -1,10 +1,15 @@
 import asyncio
 import logging
-from sqlmodel import Session
+from datetime import datetime
+from sqlmodel import Session, select
 from app.database import engine
 from app.services.ingestion.orchestrator import run_all_ingestions
 from app.services.processing.pipeline import process_pending_items
 from app.services.wiki_curator.pipeline import curate_wiki_from_news
+from app.services.vectorstore.chroma_service import index_all_news_items
+from app.services.trending.trending_engine import analyze_trending_topics
+from app.services.reports.weekly_compiler import compile_weekly_report
+from app.models.weekly_report import WeeklyReport
 
 logger = logging.getLogger("dev-patrika.scheduler")
 
@@ -27,10 +32,28 @@ async def ingestion_scheduler_loop():
                 ai_stats = process_pending_items(session)
                 logger.info(f"AI summarization finished. Stats: {ai_stats}")
                 
+                # Index new news items in Chroma vector database
+                logger.info("Synchronizing news vectors to Chroma DB...")
+                index_all_news_items(session)
+                
                 # 3. Run Wiki curator auto-curation
                 logger.info("Executing scheduled Wiki curation...")
                 wiki_stats = curate_wiki_from_news(session)
                 logger.info(f"Wiki curation finished. Stats: {wiki_stats}")
+                
+                # 4. Run Trending Topics analysis
+                logger.info("Executing scheduled Trending Topics analysis...")
+                trending_stats = analyze_trending_topics(session)
+                logger.info(f"Trending analysis finished. Stats: {trending_stats}")
+                
+                # 5. Check if Weekly Report compilation is needed
+                latest_report = session.exec(
+                    select(WeeklyReport).order_by(WeeklyReport.created_at.desc())
+                ).first()
+                
+                if not latest_report or (datetime.utcnow() - latest_report.created_at).days >= 7:
+                    logger.info("Generating weekly compiled developer report...")
+                    compile_weekly_report(session)
         except Exception as e:
             logger.error(f"Error during scheduled feed ingestion/processing: {str(e)}")
             
