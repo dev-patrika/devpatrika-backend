@@ -16,3 +16,14 @@ def get_trending_repos(session: Session = Depends(get_session)):
     results = session.exec(statement).all()
     return results
 
+@router.get("/repo/{repo_id}", response_model=GitHubRadarRead)
+def get_single_repo(repo_id: int, session: Session = Depends(get_session)):
+    """
+    Retrieve details of a single GitHub repository by its database ID.
+    """
+    from fastapi import HTTPException
+    repo = session.get(GitHubRadar, repo_id)
+    if not repo:
+        raise HTTPException(status_code=404, detail="Repository not found")
+    return repo
+

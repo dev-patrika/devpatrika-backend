@@ -21,6 +21,33 @@ class WikiDefinition(BaseModel):
         description="A list of 2-3 reputable URLs (e.g. official documentation, GitHub page, or Wikipedia) related to this term."
     )
 
+async def generate_wiki_definition_async(term: str) -> Optional[WikiDefinition]:
+    """
+    Async LLM generation of a WikiEntry definition.
+    Returns the raw Pydantic model without database operations.
+    """
+    logger.info(f"Generating Wiki definition for term asynchronously: '{term}'")
+    try:
+        llm = get_llm(temperature=0.2)
+        structured_llm = llm.with_structured_output(WikiDefinition)
+        
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", (
+                "You are an expert software engineering encyclopedia editor. Write a structured wiki page "
+                "definition for the requested technical term or library."
+            )),
+            ("human", (
+                "Term: {term}\n\n"
+                "Please generate the definition, why it's trending, and related resource links."
+            ))
+        ])
+        
+        chain = prompt | structured_llm
+        return await chain.ainvoke({"term": term})
+    except Exception as e:
+        logger.error(f"Failed to async generate wiki entry for '{term}': {str(e)}")
+        return None
+
 def generate_wiki_definition(term: str, session: Session) -> Optional[WikiEntry]:
     """
     Generate or update a WikiEntry for a specific technical term.
