@@ -1,4 +1,6 @@
 import logging
+import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 from typing import List
 from pydantic import BaseModel, Field
@@ -8,7 +10,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.models.news import NewsItem
 from app.models.wiki import WikiEntry
 from app.services.processing.llm import get_llm
-from app.services.processing.wiki_generator import generate_wiki_definition
+from app.services.processing.wiki_generator import generate_wiki_definition_async
 from app.services.vectorstore.chroma_service import index_wiki_entry
 
 logger = logging.getLogger("dev-patrika.wiki_curator.pipeline")
@@ -26,7 +28,7 @@ class ExtractedTerms(BaseModel):
 # Wiki Curator Tasks
 # =====================================================================
 
-def extract_terms_from_news(session: Session, hours: int = 24) -> List[str]:
+async def extract_terms_from_news_async(session: Session, hours: int = 24) -> List[str]:
     """
     Query recently processed news items and ask the LLM to extract 
     notable developer-centric technical terms, libraries, or concepts.
@@ -69,7 +71,7 @@ def extract_terms_from_news(session: Session, hours: int = 24) -> List[str]:
         ])
         
         chain = prompt | structured_llm
-        result = chain.invoke({"text": compiled_text[:12000]}) # Guard against token overflow
+        result = await chain.ainvoke({"text": compiled_text[:12000]}) # Guard against token overflow
         
         if result and result.terms:
             extracted_list = [term.strip() for term in result.terms if term.strip()]
@@ -85,14 +87,14 @@ def curate_wiki_from_news(session: Session, hours: int = 24) -> dict:
     Automate the Dev Wiki curation workflow:
     1. Extract new terms from recent news.
     2. Check database presence (case-insensitive).
-    3. Generate wiki entries for missing terms.
+    3. Generate wiki entries for missing terms asynchronously.
     4. Index the new wiki entries in Chroma vector database.
     """
     logger.info("Starting automated Dev Wiki curation cycle...")
     stats = {"terms_extracted": 0, "entries_created": 0, "entries_indexed": 0, "errors": 0}
     
-    # Step 1: Extract terms
-    terms = extract_terms_from_news(session, hours=hours)
+    # Step 1: Extract terms asynchronously using asyncio.run
+    terms = asyncio.run(extract_terms_from_news_async(session, hours=hours))
     stats["terms_extracted"] = len(terms)
     
     if not terms:
@@ -103,29 +105,70 @@ def curate_wiki_from_news(session: Session, hours: int = 24) -> dict:
     existing_wiki = session.exec(select(WikiEntry)).all()
     existing_terms_lower = {entry.term.lower() for entry in existing_wiki}
     
-    # Step 3: Generate and index missing wiki entries
+    # Find which terms are actually missing
+    missing_terms = [t for t in terms if t.lower() not in existing_terms_lower]
+    
+    # Handle duplicate wiki entries (just re-index)
     for term in terms:
         if term.lower() in existing_terms_lower:
-            logger.info(f"Wiki entry for '{term}' already exists in database. Skipping creation.")
-            
-            # Ensure it is indexed in Chroma DB anyway (heal missing index edge-cases)
+            logger.info(f"Wiki entry for '{term}' already exists in database. Re-indexing.")
             existing_entry = next((e for e in existing_wiki if e.term.lower() == term.lower()), None)
             if existing_entry:
                 index_wiki_entry(existing_entry)
                 stats["entries_indexed"] += 1
-            continue
-            
-        logger.info(f"Term '{term}' is missing from Wiki. Generating now...")
-        wiki_entry = generate_wiki_definition(term, session)
+
+    if missing_terms:
+        logger.info(f"Missing {len(missing_terms)} terms from Wiki. Generating concurrently...")
         
-        if wiki_entry:
-            stats["entries_created"] += 1
-            # Step 4: Index in Chroma DB vectorstore
-            index_wiki_entry(wiki_entry)
-            stats["entries_indexed"] += 1
-        else:
-            logger.error(f"Failed to automatically curate WikiEntry for term '{term}'")
-            stats["errors"] += 1
+        async def generate_definitions(terms_list):
+            tasks = [generate_wiki_definition_async(term) for term in terms_list]
+            return await asyncio.gather(*tasks, return_exceptions=True)
             
+        results = asyncio.run(generate_definitions(missing_terms))
+        
+        # Save generated terms to database and index in Chroma
+        for term, result in zip(missing_terms, results):
+            if isinstance(result, Exception) or result is None:
+                logger.error(f"Failed to automatically curate WikiEntry for term '{term}'")
+                stats["errors"] += 1
+                continue
+                
+            try:
+                # Double check to prevent race conditions
+                statement = select(WikiEntry).where(WikiEntry.term == term)
+                existing_entry = session.exec(statement).first()
+                
+                if existing_entry:
+                    existing_entry.definition = result.definition
+                    existing_entry.why_trending = result.why_trending
+                    existing_entry.set_links(result.related_links)
+                    existing_entry.updated_at = datetime.utcnow()
+                    entry = existing_entry
+                    logger.info(f"Updated existing WikiEntry for '{term}'")
+                else:
+                    entry = WikiEntry(
+                        term=term,
+                        definition=result.definition,
+                        why_trending=result.why_trending,
+                        related_links=json.dumps(result.related_links),
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    logger.info(f"Created new WikiEntry for '{term}'")
+                
+                session.add(entry)
+                session.commit()
+                session.refresh(entry)
+                
+                stats["entries_created"] += 1
+                # Index in Chroma DB
+                index_wiki_entry(entry)
+                stats["entries_indexed"] += 1
+                
+            except Exception as e:
+                session.rollback()
+                logger.error(f"Failed to save wiki entry for '{term}': {str(e)}")
+                stats["errors"] += 1
+                
     logger.info(f"Automated Wiki Curation cycle finished. Stats: {stats}")
     return stats

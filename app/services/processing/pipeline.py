@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from typing import List, Optional
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -71,8 +72,8 @@ def format_github_markdown(analysis: GitHubAnalysis) -> str:
 # Pipeline Processing Chains
 # =====================================================================
 
-def analyze_news_item(title: str, raw_content: str, source: str) -> Optional[NewsAnalysis]:
-    """Use LLM chain with structured output to analyze a news item."""
+async def analyze_news_item_async(title: str, raw_content: str, source: str) -> Optional[NewsAnalysis]:
+    """Use async LLM chain with structured output to analyze a news item."""
     try:
         llm = get_llm(temperature=0.0)
         structured_llm = llm.with_structured_output(NewsAnalysis)
@@ -91,10 +92,9 @@ def analyze_news_item(title: str, raw_content: str, source: str) -> Optional[New
         ])
         
         chain = prompt | structured_llm
-        # Limit content size to prevent token overflow
         truncated_content = raw_content[:8000] if raw_content else "No content description available."
         
-        result = chain.invoke({
+        result = await chain.ainvoke({
             "source": source,
             "title": title,
             "raw_content": truncated_content
@@ -104,8 +104,8 @@ def analyze_news_item(title: str, raw_content: str, source: str) -> Optional[New
         logger.error(f"Failed to analyze news item '{title}': {str(e)}")
         return None
 
-def analyze_github_repo(repo_name: str, description: str) -> Optional[GitHubAnalysis]:
-    """Use LLM chain with structured output to analyze a trending repository."""
+async def analyze_github_repo_async(repo_name: str, description: str) -> Optional[GitHubAnalysis]:
+    """Use async LLM chain with structured output to analyze a trending repository."""
     try:
         llm = get_llm(temperature=0.0)
         structured_llm = llm.with_structured_output(GitHubAnalysis)
@@ -123,7 +123,7 @@ def analyze_github_repo(repo_name: str, description: str) -> Optional[GitHubAnal
         ])
         
         chain = prompt | structured_llm
-        result = chain.invoke({
+        result = await chain.ainvoke({
             "repo_name": repo_name,
             "description": description or "No description provided."
         })
@@ -138,7 +138,7 @@ def analyze_github_repo(repo_name: str, description: str) -> Optional[GitHubAnal
 
 def process_pending_items(session: Session) -> dict:
     """
-    Fetch all items with un-generated summaries from SQLite and run them through the LLM pipeline.
+    Fetch all items with un-generated summaries from SQLite and run them concurrently through the LLM pipeline.
     """
     stats = {"processed_news": 0, "processed_github": 0, "errors": 0}
     
@@ -148,24 +148,29 @@ def process_pending_items(session: Session) -> dict:
     pending_news = session.exec(statement).all()
     
     if pending_news:
-        logger.info(f"Found {len(pending_news)} news items to process.")
-        for item in pending_news:
-            analysis = analyze_news_item(item.title, item.raw_content, item.source)
-            if analysis:
-                item.summary = format_news_markdown(analysis)
-                item.category = analysis.category
-                session.add(item)
-                stats["processed_news"] += 1
-            else:
-                stats["errors"] += 1
+        logger.info(f"Found {len(pending_news)} news items to process asynchronously.")
+        
+        async def process_news_batch(items):
+            tasks = [analyze_news_item_async(item.title, item.raw_content, item.source) for item in items]
+            return await asyncio.gather(*tasks, return_exceptions=True)
             
-            # Commit after each item to prevent losing progress if one fails
-            try:
-                session.commit()
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Failed to commit news item summary for id {item.id}: {str(e)}")
+        results = asyncio.run(process_news_batch(pending_news))
+        
+        for item, analysis in zip(pending_news, results):
+            if isinstance(analysis, Exception) or analysis is None:
                 stats["errors"] += 1
+                continue
+                
+            item.summary = format_news_markdown(analysis)
+            item.category = analysis.category
+            session.add(item)
+            stats["processed_news"] += 1
+            
+        try:
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to commit news item summaries: {str(e)}")
     else:
         logger.info("No pending news items found.")
 
@@ -175,22 +180,28 @@ def process_pending_items(session: Session) -> dict:
     pending_repos = session.exec(github_statement).all()
     
     if pending_repos:
-        logger.info(f"Found {len(pending_repos)} GitHub repositories to process.")
-        for repo in pending_repos:
-            analysis = analyze_github_repo(repo.repo_name, repo.description)
-            if analysis:
-                repo.why_it_matters_summary = format_github_markdown(analysis)
-                session.add(repo)
-                stats["processed_github"] += 1
-            else:
+        logger.info(f"Found {len(pending_repos)} GitHub repositories to process asynchronously.")
+        
+        async def process_repo_batch(repos):
+            tasks = [analyze_github_repo_async(repo.repo_name, repo.description) for repo in repos]
+            return await asyncio.gather(*tasks, return_exceptions=True)
+            
+        results = asyncio.run(process_repo_batch(pending_repos))
+        
+        for repo, analysis in zip(pending_repos, results):
+            if isinstance(analysis, Exception) or analysis is None:
                 stats["errors"] += 1
+                continue
                 
-            try:
-                session.commit()
-            except Exception as e:
-                session.rollback()
-                logger.error(f"Failed to commit GitHub repo summary for id {repo.id}: {str(e)}")
-                stats["errors"] += 1
+            repo.why_it_matters_summary = format_github_markdown(analysis)
+            session.add(repo)
+            stats["processed_github"] += 1
+            
+        try:
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            logger.error(f"Failed to commit GitHub repo summaries: {str(e)}")
     else:
         logger.info("No pending GitHub repositories found.")
 

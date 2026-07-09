@@ -86,3 +86,14 @@ def get_related_news_articles(news_id: int, session: Session = Depends(get_sessi
     related = get_related_articles(session, item_id=news_id, limit=3, threshold=0.3)
     return related
 
+@router.get("/{news_id}", response_model=NewsItemRead)
+def get_single_news(news_id: int, session: Session = Depends(get_session)):
+    """
+    Retrieve details of a single tech news article by its database ID.
+    """
+    from fastapi import HTTPException
+    news_item = session.get(NewsItem, news_id)
+    if not news_item:
+        raise HTTPException(status_code=404, detail="News article not found")
+    return news_item
+

@@ -22,38 +22,45 @@ async def ingestion_scheduler_loop():
     while True:
         try:
             logger.info("Executing periodic feed ingestion and processing cycle...")
-            with Session(engine) as session:
-                # 1. Run the orchestrator to poll and save documents
-                stats = run_all_ingestions(session)
-                logger.info(f"Feed ingestion loop finished. Stats: {stats}")
-                
-                # 2. Run LLM news summarization
-                logger.info("Executing scheduled AI summarization...")
-                ai_stats = process_pending_items(session)
-                logger.info(f"AI summarization finished. Stats: {ai_stats}")
-                
-                # Index new news items in Chroma vector database
-                logger.info("Synchronizing news vectors to Chroma DB...")
-                index_all_news_items(session)
-                
-                # 3. Run Wiki curator auto-curation
-                logger.info("Executing scheduled Wiki curation...")
-                wiki_stats = curate_wiki_from_news(session)
-                logger.info(f"Wiki curation finished. Stats: {wiki_stats}")
-                
-                # 4. Run Trending Topics analysis
-                logger.info("Executing scheduled Trending Topics analysis...")
-                trending_stats = analyze_trending_topics(session)
-                logger.info(f"Trending analysis finished. Stats: {trending_stats}")
-                
-                # 5. Check if Weekly Report compilation is needed
-                latest_report = session.exec(
-                    select(WeeklyReport).order_by(WeeklyReport.created_at.desc())
-                ).first()
-                
-                if not latest_report or (datetime.utcnow() - latest_report.created_at).days >= 7:
-                    logger.info("Generating weekly compiled developer report...")
-                    compile_weekly_report(session)
+            
+            # Wrap the entirely synchronous heavy process in a separate thread
+            # so it does not block the FastAPI event loop.
+            def run_sync_tasks():
+                with Session(engine) as session:
+                    # 1. Run the orchestrator to poll and save documents
+                    stats = run_all_ingestions(session)
+                    logger.info(f"Feed ingestion loop finished. Stats: {stats}")
+                    
+                    # 2. Run LLM news summarization
+                    logger.info("Executing scheduled AI summarization...")
+                    ai_stats = process_pending_items(session)
+                    logger.info(f"AI summarization finished. Stats: {ai_stats}")
+                    
+                    # Index new news items in Chroma vector database
+                    logger.info("Synchronizing news vectors to Chroma DB...")
+                    index_all_news_items(session)
+                    
+                    # 3. Run Wiki curator auto-curation
+                    logger.info("Executing scheduled Wiki curation...")
+                    wiki_stats = curate_wiki_from_news(session)
+                    logger.info(f"Wiki curation finished. Stats: {wiki_stats}")
+                    
+                    # 4. Run Trending Topics analysis
+                    logger.info("Executing scheduled Trending Topics analysis...")
+                    trending_stats = analyze_trending_topics(session)
+                    logger.info(f"Trending analysis finished. Stats: {trending_stats}")
+                    
+                    # 5. Check if Weekly Report compilation is needed
+                    latest_report = session.exec(
+                        select(WeeklyReport).order_by(WeeklyReport.created_at.desc())
+                    ).first()
+                    
+                    if not latest_report or (datetime.utcnow() - latest_report.created_at).days >= 7:
+                        logger.info("Generating weekly compiled developer report...")
+                        compile_weekly_report(session)
+            
+            await asyncio.to_thread(run_sync_tasks)
+
         except Exception as e:
             logger.error(f"Error during scheduled feed ingestion/processing: {str(e)}")
             
