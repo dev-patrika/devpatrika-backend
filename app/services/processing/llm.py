@@ -39,5 +39,5 @@ def get_llm(temperature: float = 0.0):
         api_key=gemini_key or "placeholder_key"
     )
 
-    # Return LLM chain with fallback to Gemini
-    return groq_llm.with_fallbacks([gemini_llm])
+    # Return LLM chain with fallback to Gemini, catching all exceptions (including Groq-specific rate limit errors)
+    return groq_llm.with_fallbacks([gemini_llm], exceptions_to_handle=(Exception,))

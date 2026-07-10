@@ -79,6 +79,7 @@ def index_wiki_entry(entry: WikiEntry):
         logger.info(f"Successfully indexed WikiEntry '{entry.term}' in Chroma.")
     except Exception as e:
         logger.error(f"Failed to index WikiEntry ID {entry.id} in Chroma: {str(e)}")
+        raise e
 
 def index_all_wiki_entries(session: Session):
     """
@@ -93,9 +94,51 @@ def index_all_wiki_entries(session: Session):
             logger.info("No wiki entries found in SQLite to index.")
             return
             
-        logger.info(f"Indexing {len(entries)} wiki entries...")
-        for entry in entries:
-            index_wiki_entry(entry)
+        logger.info(f"Checking and indexing {len(entries)} wiki entries...")
+        db = get_vectorstore(collection_name="wiki_entries")
+        
+        import time
+        
+        idx = 0
+        circuit_broken = False
+        while idx < len(entries) and not circuit_broken:
+            entry = entries[idx]
+            
+            retry_count = 0
+            max_retries = 1
+            item_success = False
+            
+            while retry_count <= max_retries and not item_success:
+                try:
+                    # Check if already present in vector DB to save embedding quota
+                    try:
+                        existing = db.get(ids=[str(entry.id)])
+                        if existing and existing.get("ids"):
+                            item_success = True
+                            idx += 1
+                            continue
+                    except Exception as check_err:
+                        logger.warning(f"Error checking if WikiEntry {entry.id} exists in Chroma: {check_err}")
+                    
+                    index_wiki_entry(entry)
+                    item_success = True
+                    idx += 1
+                    time.sleep(0.5)  # Spacer delay
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "429" in error_msg or "rate" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            logger.warning(f"Rate limit hit during wiki indexing: {e}. Waiting 120 seconds before retry {retry_count}/{max_retries}...")
+                            time.sleep(120)
+                        else:
+                            logger.error(f"Rate limit hit and max retries ({max_retries}) exceeded: {e}. Circuit breaker triggered: aborting wiki indexing.")
+                            circuit_broken = True
+                            break
+                    else:
+                        logger.error(f"Failed to index wiki entry {entry.id}: {e}. Skipping.")
+                        idx += 1
+                        item_success = True
             
         logger.info("Batch wiki vector synchronization complete.")
     except Exception as e:
@@ -180,6 +223,7 @@ def index_news_item(item: NewsItem):
         logger.info(f"Successfully indexed NewsItem '{item.title}' in Chroma.")
     except Exception as e:
         logger.error(f"Failed to index NewsItem ID {item.id} in Chroma: {str(e)}")
+        raise e
 
 def index_all_news_items(session: Session):
     """
@@ -194,9 +238,51 @@ def index_all_news_items(session: Session):
             logger.info("No summarized news items found in SQLite to index.")
             return
             
-        logger.info(f"Indexing {len(items)} news items...")
-        for item in items:
-            index_news_item(item)
+        logger.info(f"Checking and indexing {len(items)} news items...")
+        db = get_vectorstore(collection_name="news_items")
+        
+        import time
+        
+        idx = 0
+        circuit_broken = False
+        while idx < len(items) and not circuit_broken:
+            item = items[idx]
+            
+            retry_count = 0
+            max_retries = 1
+            item_success = False
+            
+            while retry_count <= max_retries and not item_success:
+                try:
+                    # Check if already present in vector DB to save embedding quota
+                    try:
+                        existing = db.get(ids=[str(item.id)])
+                        if existing and existing.get("ids"):
+                            item_success = True
+                            idx += 1
+                            continue
+                    except Exception as check_err:
+                        logger.warning(f"Error checking if NewsItem {item.id} exists in Chroma: {check_err}")
+                    
+                    index_news_item(item)
+                    item_success = True
+                    idx += 1
+                    time.sleep(0.5)  # Spacer delay
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "429" in error_msg or "rate" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                        retry_count += 1
+                        if retry_count <= max_retries:
+                            logger.warning(f"Rate limit hit during news indexing: {e}. Waiting 120 seconds before retry {retry_count}/{max_retries}...")
+                            time.sleep(120)
+                        else:
+                            logger.error(f"Rate limit hit and max retries ({max_retries}) exceeded: {e}. Circuit breaker triggered: aborting news indexing.")
+                            circuit_broken = True
+                            break
+                    else:
+                        logger.error(f"Failed to index news item {item.id}: {e}. Skipping.")
+                        idx += 1
+                        item_success = True
             
         logger.info("Batch news vector synchronization complete.")
     except Exception as e:

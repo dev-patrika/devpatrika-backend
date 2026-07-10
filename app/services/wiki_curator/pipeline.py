@@ -114,8 +114,11 @@ def curate_wiki_from_news(session: Session, hours: int = 24) -> dict:
             logger.info(f"Wiki entry for '{term}' already exists in database. Re-indexing.")
             existing_entry = next((e for e in existing_wiki if e.term.lower() == term.lower()), None)
             if existing_entry:
-                index_wiki_entry(existing_entry)
-                stats["entries_indexed"] += 1
+                try:
+                    index_wiki_entry(existing_entry)
+                    stats["entries_indexed"] += 1
+                except Exception as idx_err:
+                    logger.warning(f"Failed to re-index existing WikiEntry '{term}' in Chroma: {idx_err}")
 
     if missing_terms:
         logger.info(f"Missing {len(missing_terms)} terms from Wiki. Generating concurrently...")

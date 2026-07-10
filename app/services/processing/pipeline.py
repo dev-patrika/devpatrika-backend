@@ -72,7 +72,7 @@ def format_github_markdown(analysis: GitHubAnalysis) -> str:
 # Pipeline Processing Chains
 # =====================================================================
 
-async def analyze_news_item_async(title: str, raw_content: str, source: str) -> Optional[NewsAnalysis]:
+async def analyze_news_item_async(title: str, raw_content: str, source: str) -> NewsAnalysis:
     """Use async LLM chain with structured output to analyze a news item."""
     try:
         llm = get_llm(temperature=0.0)
@@ -102,9 +102,9 @@ async def analyze_news_item_async(title: str, raw_content: str, source: str) -> 
         return result
     except Exception as e:
         logger.error(f"Failed to analyze news item '{title}': {str(e)}")
-        return None
+        raise e
 
-async def analyze_github_repo_async(repo_name: str, description: str) -> Optional[GitHubAnalysis]:
+async def analyze_github_repo_async(repo_name: str, description: str) -> GitHubAnalysis:
     """Use async LLM chain with structured output to analyze a trending repository."""
     try:
         llm = get_llm(temperature=0.0)
@@ -130,7 +130,7 @@ async def analyze_github_repo_async(repo_name: str, description: str) -> Optiona
         return result
     except Exception as e:
         logger.error(f"Failed to analyze GitHub repository '{repo_name}': {str(e)}")
-        return None
+        raise e
 
 # =====================================================================
 # Batch Processing Background Worker
@@ -151,8 +151,45 @@ def process_pending_items(session: Session) -> dict:
         logger.info(f"Found {len(pending_news)} news items to process asynchronously.")
         
         async def process_news_batch(items):
-            tasks = [analyze_news_item_async(item.title, item.raw_content, item.source) for item in items]
-            return await asyncio.gather(*tasks, return_exceptions=True)
+            chunk_size = 5
+            results = []
+            i = 0
+            while i < len(items):
+                chunk = items[i:i + chunk_size]
+                logger.info(f"Processing news batch {i//chunk_size + 1}/{((len(items)-1)//chunk_size)+1} (size {len(chunk)})...")
+                
+                retry_count = 0
+                max_retries = 1
+                batch_success = False
+                
+                while retry_count <= max_retries and not batch_success:
+                    tasks = [analyze_news_item_async(item.title, item.raw_content, item.source) for item in chunk]
+                    try:
+                        chunk_results = await asyncio.gather(*tasks)
+                        results.extend(chunk_results)
+                        batch_success = True
+                        i += chunk_size
+                        if i < len(items):
+                            logger.info("Sleeping for 2 seconds between batches...")
+                            await asyncio.sleep(2)
+                    except Exception as e:
+                        error_msg = str(e).lower()
+                        if "429" in error_msg or "rate" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                            retry_count += 1
+                            if retry_count <= max_retries:
+                                logger.warning(f"Rate limit hit during batch processing: {e}. Sleeping 120 seconds before retry {retry_count}/{max_retries}...")
+                                await asyncio.sleep(120)
+                            else:
+                                logger.error(f"Rate limit hit and max retries ({max_retries}) exceeded: {e}. Skipping this batch.")
+                                results.extend([None] * len(chunk))
+                                i += chunk_size
+                                batch_success = True  # Break retry loop to move to next batch
+                        else:
+                            logger.error(f"Non-rate-limit error during batch processing: {e}. Skipping this batch.")
+                            results.extend([None] * len(chunk))
+                            i += chunk_size
+                            batch_success = True  # Break retry loop to move to next batch
+            return results
             
         results = asyncio.run(process_news_batch(pending_news))
         
@@ -183,8 +220,45 @@ def process_pending_items(session: Session) -> dict:
         logger.info(f"Found {len(pending_repos)} GitHub repositories to process asynchronously.")
         
         async def process_repo_batch(repos):
-            tasks = [analyze_github_repo_async(repo.repo_name, repo.description) for repo in repos]
-            return await asyncio.gather(*tasks, return_exceptions=True)
+            chunk_size = 5
+            results = []
+            i = 0
+            while i < len(repos):
+                chunk = repos[i:i + chunk_size]
+                logger.info(f"Processing GitHub batch {i//chunk_size + 1}/{((len(repos)-1)//chunk_size)+1} (size {len(chunk)})...")
+                
+                retry_count = 0
+                max_retries = 1
+                batch_success = False
+                
+                while retry_count <= max_retries and not batch_success:
+                    tasks = [analyze_github_repo_async(repo.repo_name, repo.description) for repo in chunk]
+                    try:
+                        chunk_results = await asyncio.gather(*tasks)
+                        results.extend(chunk_results)
+                        batch_success = True
+                        i += chunk_size
+                        if i < len(repos):
+                            logger.info("Sleeping for 2 seconds between batches...")
+                            await asyncio.sleep(2)
+                    except Exception as e:
+                        error_msg = str(e).lower()
+                        if "429" in error_msg or "rate" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
+                            retry_count += 1
+                            if retry_count <= max_retries:
+                                logger.warning(f"Rate limit hit during GitHub batch: {e}. Sleeping 120 seconds before retry {retry_count}/{max_retries}...")
+                                await asyncio.sleep(120)
+                            else:
+                                logger.error(f"Rate limit hit and max retries ({max_retries}) exceeded: {e}. Skipping this batch.")
+                                results.extend([None] * len(chunk))
+                                i += chunk_size
+                                batch_success = True
+                        else:
+                            logger.error(f"Non-rate-limit error: {e}. Skipping batch.")
+                            results.extend([None] * len(chunk))
+                            i += chunk_size
+                            batch_success = True
+            return results
             
         results = asyncio.run(process_repo_batch(pending_repos))
         
