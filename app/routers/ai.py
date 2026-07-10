@@ -17,8 +17,7 @@ def get_supported_models():
         {"provider": "Google", "model": "gemini-2.5-flash", "status": "active"},
         {"provider": "Groq", "model": "openai/gpt-oss-120b", "status": "active"},
         {"provider": "Groq", "model": "openai/gpt-oss-20b", "status": "active"},
-        {"provider": "Groq", "model": "qwen/qwen3.6-27b", "status": "active"},
-        {"provider": "Hugging Face", "model": "mistral-7b-instruct", "status": "inactive"}
+        {"provider": "Groq", "model": "qwen/qwen3.6-27b", "status": "active"}
     ]
 
 @router.post("/chat")

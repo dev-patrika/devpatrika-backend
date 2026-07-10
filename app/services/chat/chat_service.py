@@ -1,4 +1,5 @@
 import logging
+import os
 import re
 from typing import List, Dict, Any, Tuple
 from datetime import datetime
@@ -36,6 +37,32 @@ def get_selected_llm(model_name: str, temperature: float = 0.4):
             temperature=temperature,
             api_key=gemini_key or "placeholder_key"
         )
+    elif "mistral" in model_lower or "hugging" in model_lower:
+        logger.info(f"Instantiating Hugging Face model ('mistral-7b-instruct')")
+        hf_key = settings.HUGGINGFACE_API_KEY or os.environ.get("HUGGINGFACE_API_KEY")
+        if not hf_key:
+            logger.warning("No HUGGINGFACE_API_KEY found in settings/environment. Falling back to Gemini.")
+            return ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                temperature=temperature,
+                api_key=gemini_key or "placeholder_key"
+            )
+        try:
+            from langchain_community.llms import HuggingFaceEndpoint
+            return HuggingFaceEndpoint(
+                repo_id="mistralai/Mistral-7B-Instruct-v0.2",
+                task="text-generation",
+                huggingfacehub_api_token=hf_key,
+                temperature=temperature,
+                max_new_tokens=512
+            )
+        except Exception as e:
+            logger.error(f"Failed to load Hugging Face model: {e}. Falling back to Gemini.")
+            return ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash",
+                temperature=temperature,
+                api_key=gemini_key or "placeholder_key"
+            )
     else:
         # Default or explicit Groq
         selected_id = "openai/gpt-oss-120b"
