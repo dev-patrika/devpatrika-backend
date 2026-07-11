@@ -21,6 +21,9 @@ dev_patrika.db-journal
 data/chroma_db/
 chroma_db/
 
+# Backup files (pre-migration snapshots)
+backups/
+
 # Local env files
 .env
 .env*.local

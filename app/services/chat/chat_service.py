@@ -11,7 +11,7 @@ from langchain_groq import ChatGroq
 
 from app.config import settings
 from app.models.chat_history import ChatMessage
-from app.services.vectorstore.chroma_service import semantic_search_wiki, semantic_search_news
+from app.services.vectorstore.vector_service import semantic_search_wiki, semantic_search_news
 import json
 
 logger = logging.getLogger("dev-patrika.chat.service")

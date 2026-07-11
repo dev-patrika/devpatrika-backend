@@ -82,7 +82,7 @@ def get_related_news_articles(news_id: int, session: Session = Depends(get_sessi
     """
     Retrieve semantically related news articles based on vector similarity.
     """
-    from app.services.vectorstore.chroma_service import get_related_articles
+    from app.services.vectorstore.vector_service import get_related_articles
     related = get_related_articles(session, item_id=news_id, limit=3, threshold=0.3)
     return related
 

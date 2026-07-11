@@ -92,7 +92,7 @@ def compile_weekly_report(session: Session, days: int = 7) -> WeeklyReport:
         
         report_markdown = result.content if hasattr(result, "content") else str(result)
         
-        # 6. Save in SQLite database
+        # 6. Save in database
         report_title = f"Weekly Developer Intelligence Report ({start_date.strftime('%B %d')} - {end_date.strftime('%B %d, %Y')})"
         
         report = WeeklyReport(

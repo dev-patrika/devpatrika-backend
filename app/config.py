@@ -6,7 +6,8 @@ class Settings(BaseSettings):
     PORT: int = 8000
     DEBUG: bool = True
     
-    DATABASE_URL: str = "sqlite:///./dev_patrika.db"
+    # Neon Postgres connection string (pooled via pgbouncer)
+    DATABASE_URL: str = ""
     
     GEMINI_API_KEY: str = ""
     GROQ_API_KEY: str = ""

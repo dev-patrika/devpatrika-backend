@@ -1,19 +1,17 @@
 import os
 import logging
+import time
 from typing import List, Tuple
 from sqlmodel import Session, select
 from langchain_core.documents import Document
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from langchain_chroma import Chroma
+from langchain_postgres import PGVector
 
 from app.config import settings
 from app.models.wiki import WikiEntry
 from app.models.news import NewsItem
 
-logger = logging.getLogger("dev-patrika.vectorstore.chroma")
-
-# Path to persistent Chroma DB storage
-CHROMA_PERSIST_DIR = os.path.abspath("chroma_db")
+logger = logging.getLogger("dev-patrika.vectorstore.vector")
 
 # Initialize Embeddings model (Google gemini-embedding-2)
 # Sync API keys to environment if needed
@@ -25,15 +23,16 @@ embeddings = GoogleGenerativeAIEmbeddings(
     google_api_key=settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
 )
 
-def get_vectorstore(collection_name: str = "wiki_entries") -> Chroma:
-    """Initialize or load the local persistent Chroma vector database for a specific collection."""
-    # Ensure directory exists
-    os.makedirs(CHROMA_PERSIST_DIR, exist_ok=True)
-    
-    return Chroma(
+# Convert connection string from psycopg2 format to standard postgresql format for psycopg3 (langchain-postgres)
+connection_string = settings.DATABASE_URL.replace("postgresql+psycopg2://", "postgresql://")
+
+def get_vectorstore(collection_name: str = "wiki_entries") -> PGVector:
+    """Initialize or load the Neon pgvector store for a specific collection."""
+    return PGVector(
+        embeddings=embeddings,
         collection_name=collection_name,
-        embedding_function=embeddings,
-        persist_directory=CHROMA_PERSIST_DIR
+        connection=connection_string,
+        use_jsonb=True
     )
 
 # =====================================================================
@@ -42,13 +41,13 @@ def get_vectorstore(collection_name: str = "wiki_entries") -> Chroma:
 
 def index_wiki_entry(entry: WikiEntry):
     """
-    Format, embed, and upsert a single WikiEntry into the Chroma vectorstore.
+    Format, embed, and upsert a single WikiEntry into the pgvector store.
     """
     if not entry or not entry.id:
         logger.warning("Attempted to index an empty or unsaved wiki entry.")
         return
         
-    logger.info(f"Indexing WikiEntry ID {entry.id} ('{entry.term}') in Chroma...")
+    logger.info(f"Indexing WikiEntry ID {entry.id} ('{entry.term}') in pgvector...")
     try:
         db = get_vectorstore(collection_name="wiki_entries")
         
@@ -67,23 +66,21 @@ def index_wiki_entry(entry: WikiEntry):
             }
         )
         
-        # Check if document already exists and delete it first to prevent duplicates
         doc_id = str(entry.id)
         try:
             db.delete(ids=[doc_id])
         except Exception:
-            # First insertion won't find it, ignore delete errors
             pass
             
         db.add_documents(documents=[doc], ids=[doc_id])
-        logger.info(f"Successfully indexed WikiEntry '{entry.term}' in Chroma.")
+        logger.info(f"Successfully indexed WikiEntry '{entry.term}' in pgvector.")
     except Exception as e:
-        logger.error(f"Failed to index WikiEntry ID {entry.id} in Chroma: {str(e)}")
+        logger.error(f"Failed to index WikiEntry ID {entry.id} in pgvector: {str(e)}")
         raise e
 
-def index_all_wiki_entries(session: Session):
+def index_all_wiki_entries(session: Session, batch_size: int = 50):
     """
-    Batch index all SQLite WikiEntry records into the Chroma DB.
+    Batch index all SQL WikiEntry records into pgvector (optimized for API limits with auto-retry).
     """
     logger.info("Starting batch wiki vector synchronization...")
     try:
@@ -91,54 +88,60 @@ def index_all_wiki_entries(session: Session):
         entries = session.exec(statement).all()
         
         if not entries:
-            logger.info("No wiki entries found in SQLite to index.")
+            logger.info("No wiki entries found in database to index.")
             return
             
-        logger.info(f"Checking and indexing {len(entries)} wiki entries...")
+        logger.info(f"Indexing {len(entries)} wiki entries in batches of {batch_size}...")
         db = get_vectorstore(collection_name="wiki_entries")
         
-        import time
-        
-        idx = 0
-        circuit_broken = False
-        while idx < len(entries) and not circuit_broken:
-            entry = entries[idx]
+        for idx in range(0, len(entries), batch_size):
+            batch = entries[idx:idx + batch_size]
+            documents = []
+            doc_ids = []
             
-            retry_count = 0
-            max_retries = 1
-            item_success = False
+            for entry in batch:
+                content = (
+                    f"Term: {entry.term}\n\n"
+                    f"Definition: {entry.definition}\n\n"
+                    f"Why it is trending: {entry.why_trending}"
+                )
+                doc = Document(
+                    page_content=content,
+                    metadata={
+                        "wiki_entry_id": entry.id,
+                        "term": entry.term
+                    }
+                )
+                documents.append(doc)
+                doc_ids.append(str(entry.id))
             
-            while retry_count <= max_retries and not item_success:
+            batch_num = idx//batch_size + 1
+            logger.info(f"Uploading wiki batch {batch_num} (size {len(batch)})...")
+            
+            # Retry mechanism for robust API calls
+            retries = 3
+            backoff = 30
+            for attempt in range(1, retries + 1):
                 try:
-                    # Check if already present in vector DB to save embedding quota
+                    # Delete old entries to prevent duplication
                     try:
-                        existing = db.get(ids=[str(entry.id)])
-                        if existing and existing.get("ids"):
-                            item_success = True
-                            idx += 1
-                            continue
-                    except Exception as check_err:
-                        logger.warning(f"Error checking if WikiEntry {entry.id} exists in Chroma: {check_err}")
-                    
-                    index_wiki_entry(entry)
-                    item_success = True
-                    idx += 1
-                    time.sleep(0.5)  # Spacer delay
+                        db.delete(ids=doc_ids)
+                    except Exception:
+                        pass
+                        
+                    db.add_documents(documents=documents, ids=doc_ids)
+                    logger.info(f"Successfully indexed wiki batch {batch_num}")
+                    break
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if "429" in error_msg or "rate" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                        retry_count += 1
-                        if retry_count <= max_retries:
-                            logger.warning(f"Rate limit hit during wiki indexing: {e}. Waiting 120 seconds before retry {retry_count}/{max_retries}...")
-                            time.sleep(120)
-                        else:
-                            logger.error(f"Rate limit hit and max retries ({max_retries}) exceeded: {e}. Circuit breaker triggered: aborting wiki indexing.")
-                            circuit_broken = True
-                            break
-                    else:
-                        logger.error(f"Failed to index wiki entry {entry.id}: {e}. Skipping.")
-                        idx += 1
-                        item_success = True
+                    logger.warning(f"Attempt {attempt}/{retries} failed for wiki batch {batch_num}: {e}")
+                    if attempt == retries:
+                        logger.error(f"Failed to index wiki batch {batch_num} after {retries} attempts.")
+                        raise e
+                    logger.info(f"Sleeping {backoff} seconds before next retry...")
+                    time.sleep(backoff)
+                    backoff *= 2  # Exponential backoff
+            
+            time.sleep(5.0)  # Rate limit safety delay between batches
             
         logger.info("Batch wiki vector synchronization complete.")
     except Exception as e:
@@ -146,8 +149,8 @@ def index_all_wiki_entries(session: Session):
 
 def semantic_search_wiki(session: Session, query: str, limit: int = 3, threshold: float = 0.3) -> List[WikiEntry]:
     """
-    Search Chroma DB semantically using cosine distance.
-    Returns SQLite matching WikiEntry database records sorted by relevance.
+    Search pgvector store semantically using cosine distance.
+    Returns database matching WikiEntry records sorted by relevance.
     """
     logger.info(f"Running semantic wiki search for query: '{query}'")
     
@@ -186,13 +189,13 @@ def semantic_search_wiki(session: Session, query: str, limit: int = 3, threshold
 
 def index_news_item(item: NewsItem):
     """
-    Format, embed, and upsert a single NewsItem into the Chroma vectorstore.
+    Format, embed, and upsert a single NewsItem into the pgvector store.
     """
     if not item or not item.id:
         logger.warning("Attempted to index an empty or unsaved news item.")
         return
         
-    logger.info(f"Indexing NewsItem ID {item.id} ('{item.title}') in Chroma...")
+    logger.info(f"Indexing NewsItem ID {item.id} ('{item.title}') in pgvector...")
     try:
         db = get_vectorstore(collection_name="news_items")
         
@@ -220,14 +223,14 @@ def index_news_item(item: NewsItem):
             pass
             
         db.add_documents(documents=[doc], ids=[doc_id])
-        logger.info(f"Successfully indexed NewsItem '{item.title}' in Chroma.")
+        logger.info(f"Successfully indexed NewsItem '{item.title}' in pgvector.")
     except Exception as e:
-        logger.error(f"Failed to index NewsItem ID {item.id} in Chroma: {str(e)}")
+        logger.error(f"Failed to index NewsItem ID {item.id} in pgvector: {str(e)}")
         raise e
 
-def index_all_news_items(session: Session):
+def index_all_news_items(session: Session, batch_size: int = 50):
     """
-    Batch index all SQLite NewsItem records into the Chroma DB.
+    Batch index all SQL NewsItem records into pgvector (optimized for API limits with auto-retry).
     """
     logger.info("Starting batch news vector synchronization...")
     try:
@@ -235,54 +238,62 @@ def index_all_news_items(session: Session):
         items = session.exec(statement).all()
         
         if not items:
-            logger.info("No summarized news items found in SQLite to index.")
+            logger.info("No summarized news items found in database to index.")
             return
             
-        logger.info(f"Checking and indexing {len(items)} news items...")
+        logger.info(f"Indexing {len(items)} news items in batches of {batch_size}...")
         db = get_vectorstore(collection_name="news_items")
         
-        import time
-        
-        idx = 0
-        circuit_broken = False
-        while idx < len(items) and not circuit_broken:
-            item = items[idx]
+        for idx in range(0, len(items), batch_size):
+            batch = items[idx:idx + batch_size]
+            documents = []
+            doc_ids = []
             
-            retry_count = 0
-            max_retries = 1
-            item_success = False
+            for item in batch:
+                content = (
+                    f"Category: {item.category}\n"
+                    f"Title: {item.title}\n"
+                    f"Summary: {item.summary or ''}\n"
+                    f"Content: {item.raw_content or ''}"
+                )
+                doc = Document(
+                    page_content=content[:8000],
+                    metadata={
+                        "news_item_id": item.id,
+                        "title": item.title,
+                        "category": item.category
+                    }
+                )
+                documents.append(doc)
+                doc_ids.append(str(item.id))
+                
+            batch_num = idx//batch_size + 1
+            logger.info(f"Uploading news batch {batch_num} (size {len(batch)})...")
             
-            while retry_count <= max_retries and not item_success:
+            # Retry mechanism for robust API calls
+            retries = 3
+            backoff = 30
+            for attempt in range(1, retries + 1):
                 try:
-                    # Check if already present in vector DB to save embedding quota
+                    # Delete old entries to prevent duplication
                     try:
-                        existing = db.get(ids=[str(item.id)])
-                        if existing and existing.get("ids"):
-                            item_success = True
-                            idx += 1
-                            continue
-                    except Exception as check_err:
-                        logger.warning(f"Error checking if NewsItem {item.id} exists in Chroma: {check_err}")
-                    
-                    index_news_item(item)
-                    item_success = True
-                    idx += 1
-                    time.sleep(0.5)  # Spacer delay
+                        db.delete(ids=doc_ids)
+                    except Exception:
+                        pass
+                        
+                    db.add_documents(documents=documents, ids=doc_ids)
+                    logger.info(f"Successfully indexed news batch {batch_num}")
+                    break
                 except Exception as e:
-                    error_msg = str(e).lower()
-                    if "429" in error_msg or "rate" in error_msg or "quota" in error_msg or "exhausted" in error_msg:
-                        retry_count += 1
-                        if retry_count <= max_retries:
-                            logger.warning(f"Rate limit hit during news indexing: {e}. Waiting 120 seconds before retry {retry_count}/{max_retries}...")
-                            time.sleep(120)
-                        else:
-                            logger.error(f"Rate limit hit and max retries ({max_retries}) exceeded: {e}. Circuit breaker triggered: aborting news indexing.")
-                            circuit_broken = True
-                            break
-                    else:
-                        logger.error(f"Failed to index news item {item.id}: {e}. Skipping.")
-                        idx += 1
-                        item_success = True
+                    logger.warning(f"Attempt {attempt}/{retries} failed for news batch {batch_num}: {e}")
+                    if attempt == retries:
+                        logger.error(f"Failed to index news batch {batch_num} after {retries} attempts.")
+                        raise e
+                    logger.info(f"Sleeping {backoff} seconds before next retry...")
+                    time.sleep(backoff)
+                    backoff *= 2  # Exponential backoff
+            
+            time.sleep(8.0)  # Rate limit safety delay between batches (slightly longer to protect Gemini limits)
             
         logger.info("Batch news vector synchronization complete.")
     except Exception as e:
@@ -304,7 +315,7 @@ def get_related_articles(session: Session, item_id: int, limit: int = 3, thresho
             
         db = get_vectorstore(collection_name="news_items")
         
-        # Query Chroma using the target item's summary
+        # Query pgvector using the target item's summary
         query_text = f"Title: {target_item.title}\nSummary: {target_item.summary}"
         # Request k=limit+1 because the article itself will likely match first
         raw_results = db.similarity_search_with_score(query_text, k=limit + 1)
@@ -340,7 +351,7 @@ def get_related_articles(session: Session, item_id: int, limit: int = 3, thresho
 
 def semantic_search_news(session: Session, query: str, limit: int = 3, threshold: float = 0.3) -> List[NewsItem]:
     """
-    Search Chroma DB semantically for matching news items.
+    Search pgvector store semantically for matching news items.
     """
     logger.info(f"Running semantic news search for query: '{query}'")
     try:

@@ -24,11 +24,14 @@ class WikiEntryRead(BaseModel):
     @field_validator("related_links", mode="before")
     @classmethod
     def parse_links(cls, v):
+        """Handle both native JSONB (list) and legacy TEXT (string) formats."""
         if isinstance(v, str):
             try:
                 return json.loads(v)
             except Exception:
                 return []
+        if v is None:
+            return []
         return v
 
     class Config:

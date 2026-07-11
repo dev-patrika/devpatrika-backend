@@ -22,7 +22,7 @@ def analyze_trending_topics(session: Session, days: int = 7) -> dict:
         wiki_statement = select(WikiEntry)
         wiki_entries = session.exec(wiki_statement).all()
         if not wiki_entries:
-            logger.info("No wiki entries found in SQLite to track for trends.")
+            logger.info("No wiki entries found to track for trends.")
             return stats
             
         # 2. Fetch news items processed in the last 'days' days
