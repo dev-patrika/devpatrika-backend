@@ -1,7 +1,7 @@
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
-import json
-from sqlmodel import SQLModel, Field
+from sqlmodel import SQLModel, Field, Column
+from sqlalchemy.dialects.postgresql import JSONB
 
 class WikiEntry(SQLModel, table=True):
     __tablename__ = "wiki_entries"
@@ -10,16 +10,6 @@ class WikiEntry(SQLModel, table=True):
     term: str = Field(index=True, unique=True)
     definition: str
     why_trending: str
-    related_links: Optional[str] = Field(default="[]") # JSON string containing references
+    related_links: Optional[List[str]] = Field(default=[], sa_column=Column(JSONB, default=[]))
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-
-    @property
-    def links_list(self) -> list:
-        try:
-            return json.loads(self.related_links or "[]")
-        except Exception:
-            return []
-
-    def set_links(self, links: list):
-        self.related_links = json.dumps(links)

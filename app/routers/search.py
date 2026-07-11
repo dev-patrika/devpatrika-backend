@@ -5,7 +5,7 @@ from typing import Dict, Any
 from app.database import get_session
 from app.models.news import NewsItem
 from app.models.github_radar import GitHubRadar
-from app.services.vectorstore.chroma_service import semantic_search_wiki
+from app.services.vectorstore.vector_service import semantic_search_wiki
 
 router = APIRouter(prefix="/search", tags=["Unified Search"])
 

@@ -1,15 +1,16 @@
 from sqlmodel import create_engine, Session, SQLModel
 from app.config import settings
 
-# SQLite requires connect_args={"check_same_thread": False} for multi-thread requests
-connect_args = {}
-if settings.DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
-
+# Configure SQLAlchemy engine for Neon Postgres (pooled connection)
+# pool_pre_ping: checks connection liveness before each use (important for serverless Postgres)
+# pool_size: max persistent connections in the pool
+# max_overflow: extra connections allowed above pool_size under burst load
 engine = create_engine(
     settings.DATABASE_URL,
     echo=False,
-    connect_args=connect_args
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10
 )
 
 def init_db():

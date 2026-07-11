@@ -4,13 +4,18 @@ sqlmodel==0.0.22
 pydantic==2.9.2
 pydantic-settings==2.10.1
 python-dotenv==1.0.1
+psycopg2-binary==2.9.10
 langchain-core==1.4.8
 langchain-community==0.4.2
 langchain-google-genai
 langchain-groq
+langchain-postgres
+langgraph
+langgraph-checkpoint-postgres
 langchain-chroma
 chromadb
 requests==2.34.2
 beautifulsoup4==4.15.0
 lxml==6.1.1
+
 

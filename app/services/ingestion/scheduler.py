@@ -6,7 +6,7 @@ from app.database import engine
 from app.services.ingestion.orchestrator import run_all_ingestions
 from app.services.processing.pipeline import process_pending_items
 from app.services.wiki_curator.pipeline import curate_wiki_from_news
-from app.services.vectorstore.chroma_service import index_all_news_items
+from app.services.vectorstore.vector_service import index_all_news_items
 from app.services.trending.trending_engine import analyze_trending_topics
 from app.services.reports.weekly_compiler import compile_weekly_report
 from app.models.weekly_report import WeeklyReport

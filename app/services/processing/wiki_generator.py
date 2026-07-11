@@ -84,7 +84,7 @@ def generate_wiki_definition(term: str, session: Session) -> Optional[WikiEntry]
         if existing_entry:
             existing_entry.definition = result.definition
             existing_entry.why_trending = result.why_trending
-            existing_entry.set_links(result.related_links)
+            existing_entry.related_links = result.related_links
             existing_entry.updated_at = datetime.utcnow()
             entry = existing_entry
             logger.info(f"Updated existing WikiEntry for '{term}'")
@@ -93,7 +93,7 @@ def generate_wiki_definition(term: str, session: Session) -> Optional[WikiEntry]
                 term=term,
                 definition=result.definition,
                 why_trending=result.why_trending,
-                related_links=json.dumps(result.related_links),
+                related_links=result.related_links,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
