@@ -5,6 +5,8 @@ from .notes import PersonalNote
 from .weekly_report import WeeklyReport
 from .trending_topic import TrendingTopic
 from .chat_history import ChatMessage
+from .user import User
+from .otp_code import OTPCode
 
 # Export all models so SQLModel metadata registers them
 __all__ = [
@@ -14,5 +16,7 @@ __all__ = [
     "PersonalNote",
     "WeeklyReport",
     "TrendingTopic",
-    "ChatMessage"
+    "ChatMessage",
+    "User",
+    "OTPCode"
 ]

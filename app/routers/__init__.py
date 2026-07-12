@@ -5,6 +5,7 @@ from .github import router as github_router
 from .search import router as search_router
 from .ai import router as ai_router
 from .reports import router as reports_router
+from .auth import router as auth_router
 
 # List of all API routers to be registered in main.py
 all_routers = [
@@ -14,5 +15,6 @@ all_routers = [
     (github_router, "/api"),
     (search_router, "/api"),
     (ai_router, "/api"),
-    (reports_router, "/api")
+    (reports_router, "/api"),
+    (auth_router, "/api")
 ]

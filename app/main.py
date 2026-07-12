@@ -44,6 +44,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from starlette.middleware.sessions import SessionMiddleware
+app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
+
 # Register Global Exception Handlers
 app.add_exception_handler(Exception, global_exception_handler)
 
