@@ -202,25 +202,82 @@ async def github_callback(request: Request, session: Session = Depends(get_sessi
 
 
 # ============================================================
-# Session Management (Phase 4 — skeleton ready)
+# Session Management
 # ============================================================
+
+from app.services.auth.jwt_service import decode_token
 
 @router.get("/me", response_model=UserProfile)
 async def get_current_user_profile(request: Request, session: Session = Depends(get_session)):
     """Return the current authenticated user's profile."""
-    # TODO: Phase 4 — decode JWT from Authorization header, fetch user
-    raise HTTPException(status_code=501, detail="Session management not yet implemented")
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = auth_header.split(" ", 1)[1]
+    payload = decode_token(token)
+    
+    if not payload or payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    
+    user_id = int(payload["sub"])
+    user = session.get(User, user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return UserProfile(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        avatar_url=user.avatar_url,
+        auth_provider=user.auth_provider,
+        is_verified=user.is_verified,
+        created_at=user.created_at
+    )
 
 
 @router.post("/refresh", response_model=AuthTokenResponse)
-async def refresh_token(request: Request, response: Response, session: Session = Depends(get_session)):
+async def refresh_access_token(request: Request, response: Response, session: Session = Depends(get_session)):
     """Issue a new access token using the refresh token cookie."""
-    # TODO: Phase 4
-    raise HTTPException(status_code=501, detail="Token refresh not yet implemented")
+    refresh_tok = request.cookies.get("refresh_token")
+    if not refresh_tok:
+        raise HTTPException(status_code=401, detail="No refresh token")
+    
+    payload = decode_token(refresh_tok)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
+    
+    user_id = int(payload["sub"])
+    user = session.get(User, user_id)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Issue new access token
+    new_access_token = create_access_token(user.id, user.email)
+    
+    profile = UserProfile(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        avatar_url=user.avatar_url,
+        auth_provider=user.auth_provider,
+        is_verified=user.is_verified,
+        created_at=user.created_at
+    )
+    
+    return AuthTokenResponse(access_token=new_access_token, user=profile)
 
 
 @router.post("/logout", response_model=MessageResponse)
 async def logout(response: Response):
     """Clear the refresh token cookie."""
-    # TODO: Phase 4
-    raise HTTPException(status_code=501, detail="Logout not yet implemented")
+    response.delete_cookie(
+        key="refresh_token",
+        httponly=True,
+        secure=True,
+        samesite="lax"
+    )
+    return MessageResponse(message="Logged out successfully")
+

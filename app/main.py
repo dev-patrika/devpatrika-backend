@@ -38,8 +38,8 @@ app = FastAPI(
 # Configure CORS Middleware (allowing frontend calls)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"], # For prod, '*' can be removed or restricted
+    allow_credentials=False, # Set to False to allow '*' origins, or restrict origins to keep True
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -49,6 +49,14 @@ app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
 
 # Register Global Exception Handlers
 app.add_exception_handler(Exception, global_exception_handler)
+
+@app.get("/")
+async def root():
+    return {"message": "Dev Patrika Beta version 2.0"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok", "version": "2.0-beta"}
 
 # Register API Routers dynamically
 for router, prefix in all_routers:
