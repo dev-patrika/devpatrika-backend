@@ -38,8 +38,12 @@ app = FastAPI(
 # Configure CORS Middleware (allowing frontend calls)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "*"], # For prod, '*' can be removed or restricted
-    allow_credentials=False, # Set to False to allow '*' origins, or restrict origins to keep True
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://devpatrika.vercel.app"
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
