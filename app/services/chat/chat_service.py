@@ -65,11 +65,11 @@ def get_selected_llm(model_name: str, temperature: float = 0.4):
             )
     else:
         # Default or explicit Groq
-        selected_id = "openai/gpt-oss-120b"
-        if "qwen" in model_lower:
-            selected_id = "qwen/qwen3.6-27b"
-        elif "gpt-oss-20b" in model_lower:
-            selected_id = "openai/gpt-oss-20b"
+        selected_id = "llama-3.1-70b-versatile"
+        if "llama3-8b" in model_lower:
+            selected_id = "llama3-8b-8192"
+        elif "mixtral" in model_lower:
+            selected_id = "mixtral-8x7b-32768"
             
         logger.info(f"Instantiating Groq Chat model ('{selected_id}')")
         return ChatGroq(
