@@ -64,9 +64,9 @@ async def ingestion_scheduler_loop():
         except Exception as e:
             logger.error(f"Error during scheduled feed ingestion/processing: {str(e)}")
             
-        logger.info("Scheduler sleeping for 6 hours before next cycle.")
-        # Sleep for 6 hours (6 * 3600 seconds)
-        await asyncio.sleep(6 * 3600)
+        logger.info("Scheduler sleeping for 4 hours before next cycle.")
+        # Sleep for 4 hours (4 * 3600 seconds)
+        await asyncio.sleep(4 * 3600)
 
 def start_scheduler():
     """Register the scheduler loop task in the running event loop."""

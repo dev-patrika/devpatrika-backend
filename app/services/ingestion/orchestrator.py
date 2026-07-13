@@ -97,7 +97,7 @@ def fetch_hn_node(state: IngestionState) -> dict:
     stats = state["stats"]
     
     logger.info("Ingesting Hacker News...")
-    hn_loader = HackerNewsLoader(limit=20)
+    hn_loader = HackerNewsLoader(limit=10)
     
     for doc in hn_loader.lazy_load():
         stats["hacker_news"]["fetched"] += 1
@@ -134,7 +134,7 @@ def fetch_devto_node(state: IngestionState) -> dict:
     stats = state["stats"]
     
     logger.info("Ingesting Dev.to...")
-    devto_loader = DevToLoader(limit_per_tag=8)
+    devto_loader = DevToLoader(limit_per_tag=3)
     
     for doc in devto_loader.lazy_load():
         stats["dev_to"]["fetched"] += 1
@@ -171,7 +171,7 @@ def fetch_arxiv_node(state: IngestionState) -> dict:
     stats = state["stats"]
     
     logger.info("Ingesting arXiv preprints...")
-    arxiv_loader = ArxivLoader(max_results=15)
+    arxiv_loader = ArxivLoader(max_results=5)
     
     for doc in arxiv_loader.lazy_load():
         stats["arxiv"]["fetched"] += 1
