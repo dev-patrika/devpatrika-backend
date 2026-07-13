@@ -14,61 +14,14 @@ from app.models.news import NewsItem
 
 logger = logging.getLogger("dev-patrika.vectorstore.vector")
 
-# Dynamic DNS resolution fallback to bypass corporate/managed DNS timeouts
-def setup_dns_fallback():
-    import socket
-    try:
-        # Check if default resolution works
-        socket.getaddrinfo("api-inference.huggingface.co", 443)
-        logger.info("Default DNS resolution for Hugging Face works.")
-    except Exception:
-        logger.warning("Default DNS failed for Hugging Face. Setting up Google DNS fallback...")
-        try:
-            # Query Google DNS (8.8.8.8) directly over UDP port 53
-            packet = bytearray([0x12, 0x34, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
-            for part in "api-inference.huggingface.co".split('.'):
-                packet.append(len(part))
-                packet.extend(part.encode('ascii'))
-            packet.append(0)
-            packet.extend([0x00, 0x01, 0x00, 0x01])
-            
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sock.settimeout(3.0)
-            sock.sendto(packet, ("8.8.8.8", 53))
-            data, _ = sock.recvfrom(1024)
-            sock.close()
-            
-            ips = []
-            for i in range(12, len(data) - 14):
-                if data[i:i+4] == b'\x00\x01\x00\x01' and data[i+8:i+10] == b'\x00\x04':
-                    ip_bytes = data[i+10:i+14]
-                    ips.append('.'.join(str(b) for b in ip_bytes))
-                    
-            if ips:
-                resolved_ip = ips[0]
-                logger.info(f"Resolved api-inference.huggingface.co to {resolved_ip} via Google DNS.")
-                
-                orig_getaddrinfo = socket.getaddrinfo
-                def custom_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-                    if host == "api-inference.huggingface.co":
-                        return [(socket.AF_INET, socket.SOCK_STREAM, 6, '', (resolved_ip, port))]
-                    return orig_getaddrinfo(host, port, family, type, proto, flags)
-                socket.getaddrinfo = custom_getaddrinfo
-                logger.info("Custom socket resolver patched successfully.")
-            else:
-                logger.error("Google DNS returned no A records for Hugging Face.")
-        except Exception as e:
-            logger.error(f"Failed to setup Google DNS fallback: {e}")
-
-setup_dns_fallback()
-
+# Initialize Embeddings model (Hugging Face BAAI/bge-small-en-v1.5)
 class HuggingFaceInferenceAPIEmbeddings(Embeddings):
     """Custom Embeddings class using Hugging Face's Cloud Inference API."""
     
     def __init__(self, model_name: str, api_key: str):
         self.model_name = model_name
         self.api_key = api_key
-        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+        self.api_url = f"https://router.huggingface.co/hf-inference/models/{model_name}"
         self.headers = {"Authorization": f"Bearer {api_key}"}
 
     def _call_api(self, inputs: List[str]) -> List[List[float]]:
@@ -109,9 +62,8 @@ class HuggingFaceInferenceAPIEmbeddings(Embeddings):
         res = self._call_api([text])
         return res[0]
 
-# Initialize Embeddings model (Hugging Face all-MiniLM-L6-v2)
 embeddings = HuggingFaceInferenceAPIEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_name="BAAI/bge-small-en-v1.5",
     api_key=settings.HUGGINGFACE_API_KEY or os.environ.get("HUGGINGFACE_API_KEY", "")
 )
 
