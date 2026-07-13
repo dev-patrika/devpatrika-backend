@@ -55,11 +55,11 @@ app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET)
 # Register Global Exception Handlers
 app.add_exception_handler(Exception, global_exception_handler)
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 async def root():
     return {"message": "Dev Patrika Beta version 2.0"}
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "ok", "version": "2.0-beta"}
 

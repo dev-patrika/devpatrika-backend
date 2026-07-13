@@ -37,8 +37,15 @@ class NewsAnalysis(BaseModel):
     overview: str = Field(
         description="A concise 1-2 sentence overview explaining what this news/tool is and how it works."
     )
+    detailed_explanation: List[str] = Field(
+        description="2-3 short, technical, and engaging paragraphs explaining the core details, background, context, or architecture of this tech news/tool. Keep paragraphs relatively short."
+    )
     key_points: List[str] = Field(
         description="3-4 high-value bullet-point takeaways summarizing key aspects, updates, or details of the article."
+    )
+    skills_to_learn: Optional[List[str]] = Field(
+        default=None,
+        description="A list of 2-4 key technical skills, languages, tools, or libraries developers should learn/know to work with or master this tech. Return None or an empty list if not applicable."
     )
     community: str = Field(
         description="A brief sentence summarizing the community interest, popularity, stars, developer response, or adoption of the tech."
@@ -62,16 +69,27 @@ class GitHubAnalysis(BaseModel):
 # Helper Formatting Functions (unchanged)
 # =====================================================================
 
-def format_news_markdown(analysis: NewsAnalysis) -> str:
-    """Format structured NewsAnalysis output into clean markdown."""
+def format_news_markdown(analysis: NewsAnalysis, url: str) -> str:
+    """Format structured NewsAnalysis output into clean markdown with deep insights."""
+    paragraphs = "\n\n".join(analysis.detailed_explanation)
     bullets = "\n".join(f"- {point}" for point in analysis.key_points)
+    
+    skills_section = ""
+    if analysis.skills_to_learn:
+        skills_bullets = "\n".join(f"- `{skill}`" for skill in analysis.skills_to_learn)
+        skills_section = f"**Skills to Learn**\n{skills_bullets}\n\n"
+        
     return (
         f"**Overview**\n"
         f"{analysis.overview}\n\n"
-        f"**Key Details**\n"
+        f"**Detailed Breakdown**\n"
+        f"{paragraphs}\n\n"
+        f"**Key Takeaways**\n"
         f"{bullets}\n\n"
+        f"{skills_section}"
         f"**Community & Traction**\n"
-        f"{analysis.community}"
+        f"{analysis.community}\n\n"
+        f"🔗 [Read Full Article]({url})"
     )
 
 def format_github_markdown(analysis: GitHubAnalysis) -> str:
@@ -99,7 +117,8 @@ async def analyze_news_item_async(title: str, raw_content: str, source: str) -> 
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
                 "You are an expert developer news analyst. Analyze the following tech news story and extract "
-                "a structured summary and category. Be precise and avoid developer jargon where possible."
+                "a structured summary, category, detailed technical explanation paragraphs, and key skills to learn. "
+                "Be precise, technical, and write clean, informative paragraphs without developer jargon where possible."
             )),
             ("human", (
                 "Source: {source}\n"
@@ -255,7 +274,7 @@ def save_news_node(state: PipelineState) -> dict:
             errors += 1
             continue
         
-        item.summary = format_news_markdown(analysis)
+        item.summary = format_news_markdown(analysis, item.url)
         item.category = analysis.category
         session.add(item)
         processed += 1
