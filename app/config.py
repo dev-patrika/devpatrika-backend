@@ -1,3 +1,4 @@
+import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
@@ -34,6 +35,11 @@ class Settings(BaseSettings):
     # ── Frontend URL (for OAuth redirects) ──
     FRONTEND_URL: str = "http://localhost:3000"
     
+    # ── LangSmith Tracing ──
+    LANGCHAIN_TRACING_V2: str = "false"
+    LANGCHAIN_API_KEY: str = ""
+    LANGCHAIN_PROJECT: str = "dev-patrika"
+    
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -41,3 +47,10 @@ class Settings(BaseSettings):
     )
 
 settings = Settings()
+
+# Auto-export LangChain environment variables if tracing is enabled
+if settings.LANGCHAIN_TRACING_V2.lower() == "true":
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    if settings.LANGCHAIN_API_KEY:
+        os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+    os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
