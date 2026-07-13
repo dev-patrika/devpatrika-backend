@@ -15,7 +15,7 @@ def get_supported_models():
     """
     return [
         {"provider": "Google", "model": "gemini-2.5-flash", "status": "active"},
-        {"provider": "Groq", "model": "llama-3.1-70b-versatile", "status": "active"},
+        {"provider": "Groq", "model": "llama-3.3-70b-versatile", "status": "active"},
         {"provider": "Groq", "model": "llama3-8b-8192", "status": "active"},
         {"provider": "Groq", "model": "mixtral-8x7b-32768", "status": "active"}
     ]
