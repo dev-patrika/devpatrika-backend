@@ -76,9 +76,9 @@ def generate_wiki_definition(term: str, session: Session) -> Optional[WikiEntry]
             logger.error(f"LLM returned empty output for wiki generation of term: '{term}'")
             return None
             
-        # Check if term already exists in database (case-insensitive check for term equivalence)
-        # In SQLite, standard column comparison is case-insensitive for standard ASCII character, but let's query directly
-        statement = select(WikiEntry).where(WikiEntry.term == term)
+        # Check if term already exists in database (case-insensitive check for term equivalence in Postgres)
+        from sqlmodel import func
+        statement = select(WikiEntry).where(func.lower(WikiEntry.term) == func.lower(term))
         existing_entry = session.exec(statement).first()
         
         if existing_entry:

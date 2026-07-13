@@ -12,8 +12,6 @@ langchain-groq
 langchain-postgres
 langgraph
 langgraph-checkpoint-postgres
-langchain-chroma
-chromadb
 requests==2.34.2
 beautifulsoup4==4.15.0
 lxml==6.1.1

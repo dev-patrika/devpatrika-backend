@@ -14,7 +14,7 @@ logger = logging.getLogger("dev-patrika")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup: Initialize the database tables
-    logger.info("Initializing SQLite database tables...")
+    logger.info("Initializing database tables...")
     try:
         init_db()
         logger.info("Database tables initialized successfully.")
@@ -26,7 +26,8 @@ async def lifespan(app: FastAPI):
     start_scheduler()
     
     yield
-    # Shutdown actions (none required for SQLite)
+    # Shutdown actions
+
 
 app = FastAPI(
     title="Dev Patrika API",

@@ -16,12 +16,12 @@ def generate_technology_timeline(term: str, session: Session) -> str:
     logger.info(f"Generating evolution timeline for: '{term}'...")
     
     # 1. Fetch matching local database context
-    wiki_statement = select(WikiEntry).where(WikiEntry.term.like(f"%{term}%"))
+    wiki_statement = select(WikiEntry).where(WikiEntry.term.ilike(f"%{term}%"))
     wiki_matches = session.exec(wiki_statement).all()
     
     news_statement = select(NewsItem).where(
-        NewsItem.title.like(f"%{term}%") |
-        (NewsItem.summary.like(f"%{term}%") if NewsItem.summary is not None else False)
+        NewsItem.title.ilike(f"%{term}%") |
+        (NewsItem.summary.ilike(f"%{term}%") if NewsItem.summary is not None else False)
     ).limit(5)
     news_matches = session.exec(news_statement).all()
     

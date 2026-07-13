@@ -27,9 +27,8 @@ def get_news(
         statement = statement.where(NewsItem.category == category)
         
     if q:
-        # SQLite LIKE is case-insensitive for standard characters
         statement = statement.where(
-            NewsItem.title.like(f"%{q}%") | NewsItem.raw_content.like(f"%{q}%")
+            NewsItem.title.ilike(f"%{q}%") | NewsItem.raw_content.ilike(f"%{q}%")
         )
         
     statement = statement.limit(limit)

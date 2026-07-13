@@ -40,9 +40,9 @@ def news_search_tool(query: str, category: Optional[str] = None, limit: int = 5)
             
             # Content query filter
             statement = statement.where(
-                NewsItem.title.like(f"%{query}%") | 
-                NewsItem.raw_content.like(f"%{query}%") | 
-                (NewsItem.summary.like(f"%{query}%") if NewsItem.summary is not None else False)
+                NewsItem.title.ilike(f"%{query}%") | 
+                NewsItem.raw_content.ilike(f"%{query}%") | 
+                (NewsItem.summary.ilike(f"%{query}%") if NewsItem.summary is not None else False)
             )
             
             statement = statement.order_by(NewsItem.published_at.desc()).limit(limit)
