@@ -1,10 +1,11 @@
 import os
-import logging
 import time
+import logging
+import requests
 from typing import List, Tuple
 from sqlmodel import Session, select
 from langchain_core.documents import Document
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_core.embeddings import Embeddings
 from langchain_postgres import PGVector
 
 from app.config import settings
@@ -13,14 +14,57 @@ from app.models.news import NewsItem
 
 logger = logging.getLogger("dev-patrika.vectorstore.vector")
 
-# Initialize Embeddings model (Google gemini-embedding-2)
-# Sync API keys to environment if needed
-if settings.GEMINI_API_KEY and not os.environ.get("GEMINI_API_KEY"):
-    os.environ["GEMINI_API_KEY"] = settings.GEMINI_API_KEY
+class HuggingFaceInferenceAPIEmbeddings(Embeddings):
+    """Custom Embeddings class using Hugging Face's Cloud Inference API."""
+    
+    def __init__(self, model_name: str, api_key: str):
+        self.model_name = model_name
+        self.api_key = api_key
+        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+        self.headers = {"Authorization": f"Bearer {api_key}"}
 
-embeddings = GoogleGenerativeAIEmbeddings(
-    model="gemini-embedding-2",
-    google_api_key=settings.GEMINI_API_KEY or os.environ.get("GEMINI_API_KEY")
+    def _call_api(self, inputs: List[str]) -> List[List[float]]:
+        # Retry mechanism in case model is loading (503 Service Unavailable)
+        retries = 5
+        backoff = 5
+        for attempt in range(retries):
+            try:
+                response = requests.post(
+                    self.api_url,
+                    headers=self.headers,
+                    json={"inputs": inputs, "options": {"wait_for_model": True}},
+                    timeout=30
+                )
+                if response.status_code == 200:
+                    return response.json()
+                elif response.status_code == 503:
+                    logger.warning(f"Hugging Face model is loading (attempt {attempt + 1}/{retries}). Sleeping {backoff}s...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                else:
+                    err_msg = f"Hugging Face API error {response.status_code}: {response.text}"
+                    logger.error(err_msg)
+                    raise ValueError(err_msg)
+            except Exception as e:
+                if attempt == retries - 1:
+                    raise e
+                time.sleep(backoff)
+                backoff *= 2
+        raise TimeoutError("Hugging Face model failed to load in time.")
+
+    def embed_documents(self, texts: List[str]) -> List[List[float]]:
+        if not texts:
+            return []
+        return self._call_api(texts)
+
+    def embed_query(self, text: str) -> List[float]:
+        res = self._call_api([text])
+        return res[0]
+
+# Initialize Embeddings model (Hugging Face all-MiniLM-L6-v2)
+embeddings = HuggingFaceInferenceAPIEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    api_key=settings.HUGGINGFACE_API_KEY or os.environ.get("HUGGINGFACE_API_KEY", "")
 )
 
 # Convert connection string from psycopg2 format to standard postgresql format for psycopg3 (langchain-postgres)
