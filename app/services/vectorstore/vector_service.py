@@ -14,13 +14,14 @@ from app.models.news import NewsItem
 
 logger = logging.getLogger("dev-patrika.vectorstore.vector")
 
+# Initialize Embeddings model (Hugging Face BAAI/bge-small-en-v1.5)
 class HuggingFaceInferenceAPIEmbeddings(Embeddings):
     """Custom Embeddings class using Hugging Face's Cloud Inference API."""
     
     def __init__(self, model_name: str, api_key: str):
         self.model_name = model_name
         self.api_key = api_key
-        self.api_url = f"https://api-inference.huggingface.co/pipeline/feature-extraction/{model_name}"
+        self.api_url = f"https://router.huggingface.co/hf-inference/models/{model_name}"
         self.headers = {"Authorization": f"Bearer {api_key}"}
 
     def _call_api(self, inputs: List[str]) -> List[List[float]]:
@@ -61,9 +62,8 @@ class HuggingFaceInferenceAPIEmbeddings(Embeddings):
         res = self._call_api([text])
         return res[0]
 
-# Initialize Embeddings model (Hugging Face all-MiniLM-L6-v2)
 embeddings = HuggingFaceInferenceAPIEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_name="BAAI/bge-small-en-v1.5",
     api_key=settings.HUGGINGFACE_API_KEY or os.environ.get("HUGGINGFACE_API_KEY", "")
 )
 
