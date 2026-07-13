@@ -90,7 +90,7 @@ def process_chat_message(
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """
     Executes RAG context retrieval, loads chat memory, runs the LLM,
-    parses citations, and saves chat history in SQLite.
+    parses citations, and saves chat history in Neon Postgres.
     Returns: Tuple[answer_text, citations_list]
     """
     logger.info(f"Processing chat message for session: '{session_id}' using model '{model_name}'")
@@ -188,7 +188,7 @@ def process_chat_message(
             if c_idx in citation_map:
                 citations_response.append(citation_map[c_idx])
                 
-        # 7. Persist turns in SQLite Database
+        # 7. Persist turns in Neon Postgres Database
         user_message = ChatMessage(
             session_id=session_id,
             role="user",
@@ -221,7 +221,7 @@ def stream_chat_message(
 ):
     """
     Executes RAG context retrieval, loads chat memory, runs the LLM,
-    streams the response chunks, parses citations, and saves chat history in SQLite.
+    streams the response chunks, parses citations, and saves chat history in Neon Postgres.
     Yields chunks as Server-Sent Events.
     """
     logger.info(f"Streaming chat message for session: '{session_id}' using model '{model_name}'")
@@ -323,7 +323,7 @@ def stream_chat_message(
         data = json.dumps({"type": "citations", "citations": citations_response})
         yield f"data: {data}\n\n"
                 
-        # 7. Persist turns in SQLite Database
+        # 7. Persist turns in Neon Postgres Database
         user_message = ChatMessage(
             session_id=session_id,
             role="user",

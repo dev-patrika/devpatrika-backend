@@ -18,7 +18,7 @@ def get_wiki_entries(
     """
     statement = select(WikiEntry)
     if q:
-        statement = statement.where(WikiEntry.term.like(f"%{q}%"))
+        statement = statement.where(WikiEntry.term.ilike(f"%{q}%"))
     
     results = session.exec(statement.order_by(WikiEntry.term.asc())).all()
     return results

@@ -36,8 +36,8 @@ async def ingestion_scheduler_loop():
                     ai_stats = process_pending_items(session)
                     logger.info(f"AI summarization finished. Stats: {ai_stats}")
                     
-                    # Index new news items in Chroma vector database
-                    logger.info("Synchronizing news vectors to Chroma DB...")
+                    # Index new news items in Neon pgvector database
+                    logger.info("Synchronizing news vectors to pgvector...")
                     index_all_news_items(session)
                     
                     # 3. Run Wiki curator auto-curation
