@@ -12,19 +12,23 @@ router = APIRouter(prefix="/news", tags=["News"])
 @router.get("", response_model=List[NewsItemRead])
 def get_news(
     category: Optional[TechCategory] = None,
+    source: Optional[str] = None,
     q: Optional[str] = None,
     limit: int = Query(default=20, le=100),
     session: Session = Depends(get_session)
 ):
     """
     Retrieve stored daily tech news articles.
-    Supports filtering by category, search queries matching title or content,
+    Supports filtering by category, source, search queries matching title or content,
     and sorting by publication date.
     """
     statement = select(NewsItem).order_by(NewsItem.published_at.desc())
     
     if category:
         statement = statement.where(NewsItem.category == category)
+        
+    if source:
+        statement = statement.where(NewsItem.source == source)
         
     if q:
         statement = statement.where(

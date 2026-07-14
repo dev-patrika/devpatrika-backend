@@ -208,7 +208,10 @@ def merge_definitions_node(state: WikiCuratorAgentState) -> dict:
                 "You are given an existing glossary entry and a new trending term context. "
                 "Integrate any new technical context, features, or updates from the new trend into the existing definition. "
                 "Keep the final output clean, precise, professional, and developer-centric. "
-                "Consolidate and deduplicate any reference links."
+                "Consolidate and deduplicate any reference links.\n\n"
+                "CRITICAL: Write in extremely simple, direct, and straightforward English. Use plain vocabulary and "
+                "simple sentence structures. Do NOT use flowery, verbose, or poetic academic prose. Keep definitions "
+                "clear and easy to understand."
             )),
             ("human", (
                 "Existing Term: {existing_term}\n"
