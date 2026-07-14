@@ -25,27 +25,31 @@ async def ingestion_scheduler_loop():
             # Wrap the entirely synchronous heavy process in a separate thread
             # so it does not block the FastAPI event loop.
             def run_sync_tasks():
+                # 1. Execute the stateful Daily Brief Agent (Ingestion + AI Summarization)
                 with Session(engine) as session:
-                    # 1. Execute the stateful Daily Brief Agent (Ingestion + AI Summarization)
                     logger.info("Executing scheduled stateful Daily Brief Agent...")
                     brief_stats = run_daily_brief_agent(session)
                     logger.info(f"Daily Brief Agent finished. Stats: {brief_stats}")
                     
-                    # Index new news items in Neon pgvector database
+                # 2. Index new news items in Neon pgvector database
+                with Session(engine) as session:
                     logger.info("Synchronizing news vectors to pgvector...")
                     index_all_news_items(session)
                     
-                    # 2. Execute the stateful Wiki Curator Agent (Extraction + Conflict Resolution / Merging)
+                # 3. Execute the stateful Wiki Curator Agent (Extraction + Conflict Resolution / Merging)
+                with Session(engine) as session:
                     logger.info("Executing scheduled stateful Wiki Curator Agent...")
                     wiki_stats = run_wiki_curator_agent(session)
                     logger.info(f"Wiki Curator Agent finished. Stats: {wiki_stats}")
                     
-                    # 4. Run Trending Topics analysis
+                # 4. Run Trending Topics analysis
+                with Session(engine) as session:
                     logger.info("Executing scheduled Trending Topics analysis...")
                     trending_stats = analyze_trending_topics(session)
                     logger.info(f"Trending analysis finished. Stats: {trending_stats}")
                     
-                    # 5. Check if Weekly Report compilation is needed
+                # 5. Check if Weekly Report compilation is needed
+                with Session(engine) as session:
                     latest_report = session.exec(
                         select(WeeklyReport).order_by(WeeklyReport.created_at.desc())
                     ).first()
