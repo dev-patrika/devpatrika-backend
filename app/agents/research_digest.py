@@ -168,7 +168,10 @@ def summarize_translate_node(state: ResearchDigestState) -> dict:
             ("system", (
                 "You are an AI research translation agent. Your task is to analyze academic research papers "
                 "and translate complex mathematical, algorithmic, or ML jargon into non-technical, "
-                "practical, and engaging summaries for software engineers and developers."
+                "practical, and engaging summaries for software engineers and developers.\n\n"
+                "CRITICAL: Write in extremely simple, direct, and straightforward English. Use plain vocabulary and "
+                "simple sentence structures. Do NOT use flowery, verbose, or poetic academic prose. Keep explanations "
+                "clear, brief, and easy to understand."
             )),
             ("human", "Paper Data:\n{context}\n\nPlease compile a structured developer-friendly digest.")
         ])

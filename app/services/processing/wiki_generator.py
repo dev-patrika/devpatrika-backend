@@ -34,7 +34,10 @@ async def generate_wiki_definition_async(term: str) -> Optional[WikiDefinition]:
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
                 "You are an expert software engineering encyclopedia editor. Write a structured wiki page "
-                "definition for the requested technical term or library."
+                "definition for the requested technical term or library.\n\n"
+                "CRITICAL: Write in extremely simple, direct, and straightforward English. Use plain vocabulary and "
+                "simple sentence structures. Do NOT use flowery, verbose, or poetic academic prose. Keep technical explanations "
+                "clear, brief, and easy to understand."
             )),
             ("human", (
                 "Term: {term}\n\n"
@@ -61,7 +64,10 @@ def generate_wiki_definition(term: str, session: Session) -> Optional[WikiEntry]
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
                 "You are an expert software engineering encyclopedia editor. Write a structured wiki page "
-                "definition for the requested technical term or library."
+                "definition for the requested technical term or library.\n\n"
+                "CRITICAL: Write in extremely simple, direct, and straightforward English. Use plain vocabulary and "
+                "simple sentence structures. Do NOT use flowery, verbose, or poetic academic prose. Keep technical explanations "
+                "clear, brief, and easy to understand."
             )),
             ("human", (
                 "Term: {term}\n\n"

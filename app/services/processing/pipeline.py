@@ -118,7 +118,11 @@ async def analyze_news_item_async(title: str, raw_content: str, source: str) -> 
             ("system", (
                 "You are an expert developer news analyst. Analyze the following tech news story and extract "
                 "a structured summary, category, detailed technical explanation paragraphs, and key skills to learn. "
-                "Be precise, technical, and write clean, informative paragraphs without developer jargon where possible."
+                "Be precise, technical, and write clean, informative paragraphs without developer jargon where possible.\n\n"
+                "CRITICAL: Write in extremely simple, direct, and straightforward English. Use plain vocabulary and "
+                "simple sentence structures. Do NOT use flowery, verbose, or poetic academic prose (e.g., instead of "
+                "writing 'the waning sun surrendered to the horizon', write 'the sun set'). Keep technical explanations "
+                "clear, brief, and easy to understand."
             )),
             ("human", (
                 "Source: {source}\n"
@@ -150,7 +154,10 @@ async def analyze_github_repo_async(repo_name: str, description: str) -> GitHubA
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
                 "You are a technical radar system. Analyze the following GitHub repository metadata and "
-                "generate a structured summary explaining what it does and why it matters."
+                "generate a structured summary explaining what it does and why it matters.\n\n"
+                "CRITICAL: Write in extremely simple, direct, and straightforward English. Use plain vocabulary and "
+                "simple sentence structures. Do NOT use flowery, verbose, or poetic academic prose. Keep explanations "
+                "clear, brief, and easy to understand."
             )),
             ("human", (
                 "Repository Name: {repo_name}\n"
