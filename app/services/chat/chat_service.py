@@ -113,11 +113,43 @@ def process_chat_message(
         else:
             langchain_messages.append(AIMessage(content=msg.content))
             
-    # 2. RAG Context Retrieval (Wiki & News collections)
+    # 2. Check if this is a deep dive query (contains why, how, explain, deep-dive, etc.)
+    query_lower = message_content.lower()
+    is_deep_dive = any(word in query_lower for word in ["why", "how", "explain", "deep-dive", "reason", "architecture"])
+    
+    if is_deep_dive:
+        try:
+            logger.info(f"Delegating query to Explain Why Agent: '{message_content}'")
+            from app.agents.explain_why import run_explain_why_agent
+            answer_text, citations_response = run_explain_why_agent(session, message_content, langchain_messages)
+            
+            user_message = ChatMessage(
+                session_id=session_id,
+                role="user",
+                content=message_content,
+                created_at=datetime.utcnow()
+            )
+            assistant_message = ChatMessage(
+                session_id=session_id,
+                role="assistant",
+                content=answer_text,
+                created_at=datetime.utcnow()
+            )
+            session.add(user_message)
+            session.add(assistant_message)
+            session.commit()
+            
+            logger.info(f"Persisted agent messages for session '{session_id}'. Citations: {len(citations_response)}")
+            return answer_text, citations_response
+        except Exception as e:
+            logger.error(f"Error in Explain Why Agent delegation: {e}")
+            session.rollback()
+
+    # 3. RAG Context Retrieval (Wiki & News collections)
     wiki_context = semantic_search_wiki(session, query=message_content, limit=3, threshold=0.3)
     news_context = semantic_search_news(session, query=message_content, limit=3, threshold=0.3)
     
-    # 3. Format Context and compile mapping list
+    # 4. Format Context and compile mapping list
     context_docs = []
     citation_map = {}  # index -> metadata dictionary
     source_idx = 1

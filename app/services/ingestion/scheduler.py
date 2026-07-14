@@ -3,9 +3,8 @@ import logging
 from datetime import datetime
 from sqlmodel import Session, select
 from app.database import engine
-from app.services.ingestion.orchestrator import run_all_ingestions
-from app.services.processing.pipeline import process_pending_items
-from app.services.wiki_curator.pipeline import curate_wiki_from_news
+from app.agents.daily_brief import run_daily_brief_agent
+from app.agents.wiki_curator import run_wiki_curator_agent
 from app.services.vectorstore.vector_service import index_all_news_items
 from app.services.trending.trending_engine import analyze_trending_topics
 from app.services.reports.weekly_compiler import compile_weekly_report
@@ -27,23 +26,19 @@ async def ingestion_scheduler_loop():
             # so it does not block the FastAPI event loop.
             def run_sync_tasks():
                 with Session(engine) as session:
-                    # 1. Run the orchestrator to poll and save documents
-                    stats = run_all_ingestions(session)
-                    logger.info(f"Feed ingestion loop finished. Stats: {stats}")
-                    
-                    # 2. Run LLM news summarization
-                    logger.info("Executing scheduled AI summarization...")
-                    ai_stats = process_pending_items(session)
-                    logger.info(f"AI summarization finished. Stats: {ai_stats}")
+                    # 1. Execute the stateful Daily Brief Agent (Ingestion + AI Summarization)
+                    logger.info("Executing scheduled stateful Daily Brief Agent...")
+                    brief_stats = run_daily_brief_agent(session)
+                    logger.info(f"Daily Brief Agent finished. Stats: {brief_stats}")
                     
                     # Index new news items in Neon pgvector database
                     logger.info("Synchronizing news vectors to pgvector...")
                     index_all_news_items(session)
                     
-                    # 3. Run Wiki curator auto-curation
-                    logger.info("Executing scheduled Wiki curation...")
-                    wiki_stats = curate_wiki_from_news(session)
-                    logger.info(f"Wiki curation finished. Stats: {wiki_stats}")
+                    # 2. Execute the stateful Wiki Curator Agent (Extraction + Conflict Resolution / Merging)
+                    logger.info("Executing scheduled stateful Wiki Curator Agent...")
+                    wiki_stats = run_wiki_curator_agent(session)
+                    logger.info(f"Wiki Curator Agent finished. Stats: {wiki_stats}")
                     
                     # 4. Run Trending Topics analysis
                     logger.info("Executing scheduled Trending Topics analysis...")
