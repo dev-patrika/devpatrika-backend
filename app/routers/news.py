@@ -5,7 +5,7 @@ from app.core.constants import TechCategory
 from sqlmodel import Session, select
 from app.database import get_session
 from app.models.news import NewsItem
-from app.services.ingestion.orchestrator import run_all_ingestions
+from app.agents.daily_brief import run_daily_brief_agent
 
 router = APIRouter(prefix="/news", tags=["News"])
 
@@ -45,10 +45,8 @@ def trigger_ingestion(
     """
     def run_ingestion_in_background():
         from app.database import engine
-        from app.services.processing.pipeline import process_pending_items
         with Session(engine) as bg_session:
-            run_all_ingestions(bg_session)
-            process_pending_items(bg_session)
+            run_daily_brief_agent(bg_session)
 
     background_tasks.add_task(run_ingestion_in_background)
     return {
