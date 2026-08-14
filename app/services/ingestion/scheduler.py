@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from sqlmodel import Session, select
 from app.database import engine
 from app.agents.daily_brief import run_daily_brief_agent
@@ -54,9 +54,22 @@ async def ingestion_scheduler_loop():
                         select(WeeklyReport).order_by(WeeklyReport.created_at.desc())
                     ).first()
                     
-                    if not latest_report or (datetime.utcnow() - latest_report.created_at).days >= 7:
+                    # ✅ FIX: Use timedelta comparison, not .days
+                    # .days strips hours/minutes — so 6d 23h 59m = .days of 6, never triggers
+                    should_compile = (
+                        not latest_report or
+                        (datetime.utcnow() - latest_report.created_at) >= timedelta(days=7)
+                    )
+                    if should_compile:
                         logger.info("Generating weekly compiled developer report...")
-                        compile_weekly_report(session)
+                        report = compile_weekly_report(session)
+                        if report:
+                            logger.info(f"Weekly report compiled successfully: ID {report.id}")
+                        else:
+                            logger.warning("Weekly report compilation returned None (insufficient data?)")
+                    else:
+                        days_since = (datetime.utcnow() - latest_report.created_at).days
+                        logger.info(f"Weekly report skipped — last compiled {days_since} day(s) ago.")
             
             await asyncio.to_thread(run_sync_tasks)
 
