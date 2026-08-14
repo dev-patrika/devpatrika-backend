@@ -14,57 +14,92 @@ from app.models.news import NewsItem
 
 logger = logging.getLogger("dev-patrika.vectorstore.vector")
 
-# Initialize Embeddings model (Hugging Face BAAI/bge-small-en-v1.5)
+# Initialize Embeddings model (Hugging Face with Multi-Key Rotation & Cloud Model Fallback)
 class HuggingFaceInferenceAPIEmbeddings(Embeddings):
-    """Custom Embeddings class using Hugging Face's Cloud Inference API."""
+    """Custom Embeddings class using Hugging Face Cloud API with automatic key rotation and model fallback."""
     
-    def __init__(self, model_name: str, api_key: str):
-        self.model_name = model_name
-        self.api_key = api_key
-        self.api_url = f"https://router.huggingface.co/hf-inference/models/{model_name}"
-        self.headers = {"Authorization": f"Bearer {api_key}"}
+    def __init__(self, primary_model: str, api_keys: List[str], fallback_models: List[str] = None):
+        self.primary_model = primary_model
+        self.fallback_models = fallback_models or [
+            "BAAI/bge-small-en-v1.5",
+            "sentence-transformers/all-MiniLM-L6-v2",
+            "thenlper/gte-small"
+        ]
+        # Clean and filter non-empty API keys
+        self.api_keys = [k.strip() for k in api_keys if k and k.strip()]
+        self.current_key_idx = 0
 
-    def _call_api(self, inputs: List[str]) -> List[List[float]]:
-        # Retry mechanism in case model is loading (503 Service Unavailable)
-        retries = 5
-        backoff = 5
-        for attempt in range(retries):
-            try:
-                response = requests.post(
-                    self.api_url,
-                    headers=self.headers,
-                    json={"inputs": inputs, "options": {"wait_for_model": True}},
-                    timeout=30
-                )
-                if response.status_code == 200:
-                    return response.json()
-                elif response.status_code == 503:
-                    logger.warning(f"Hugging Face model is loading (attempt {attempt + 1}/{retries}). Sleeping {backoff}s...")
-                    time.sleep(backoff)
-                    backoff *= 2
-                else:
-                    err_msg = f"Hugging Face API error {response.status_code}: {response.text}"
-                    logger.error(err_msg)
-                    raise ValueError(err_msg)
-            except Exception as e:
-                if attempt == retries - 1:
-                    raise e
-                time.sleep(backoff)
-                backoff *= 2
-        raise TimeoutError("Hugging Face model failed to load in time.")
+    def _call_api_with_fallback(self, inputs: List[str]) -> List[List[float]]:
+        if not self.api_keys:
+            logger.warning("No Hugging Face API keys configured. Embedding generation will fail.")
+            raise ValueError("No Hugging Face API keys provided.")
+            
+        models_to_try = [self.primary_model] + [m for m in self.fallback_models if m != self.primary_model]
+        last_exception = None
+
+        for model in models_to_try:
+            api_url = f"https://router.huggingface.co/hf-inference/models/{model}"
+            
+            # Try all available API keys for this model
+            for idx in range(len(self.api_keys)):
+                key_index = (self.current_key_idx + idx) % len(self.api_keys)
+                key_to_use = self.api_keys[key_index]
+                headers = {"Authorization": f"Bearer {key_to_use}"}
+                
+                try:
+                    response = requests.post(
+                        api_url,
+                        headers=headers,
+                        json={"inputs": inputs, "options": {"wait_for_model": True}},
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        res_data = response.json()
+                        if isinstance(res_data, list):
+                            # Success! Remember working key index
+                            self.current_key_idx = key_index
+                            return res_data
+                            
+                    elif response.status_code in (429, 403, 400, 402):
+                        logger.warning(
+                            f"Hugging Face Cloud API key limit/credits depleted (Status {response.status_code}) "
+                            f"for model '{model}' with Key #{key_index + 1}. Rotating to next available API key..."
+                        )
+                        last_exception = ValueError(f"Cloud API limit reached ({response.status_code}): {response.text}")
+                        continue  # Try next key
+                        
+                    elif response.status_code == 503:
+                        logger.warning(f"Hugging Face model '{model}' is loading (503). Retrying...")
+                        time.sleep(3)
+                        continue
+                    else:
+                        logger.warning(f"Hugging Face API response {response.status_code}: {response.text}")
+                        last_exception = ValueError(f"HF API Error {response.status_code}: {response.text}")
+                except Exception as e:
+                    logger.warning(f"Exception during HF embedding call for model '{model}': {e}")
+                    last_exception = e
+                    continue
+
+        # If all cloud models & keys fail, raise the last exception
+        raise last_exception or TimeoutError("All Hugging Face cloud embedding attempts failed.")
 
     def embed_documents(self, texts: List[str]) -> List[List[float]]:
         if not texts:
             return []
-        return self._call_api(texts)
+        return self._call_api_with_fallback(texts)
 
     def embed_query(self, text: str) -> List[float]:
-        res = self._call_api([text])
+        res = self._call_api_with_fallback([text])
         return res[0]
 
+# Parse primary and fallback API keys from config/env (supports comma-separated string)
+raw_keys = f"{settings.HUGGINGFACE_API_KEY},{getattr(settings, 'HUGGINGFACE_FALLBACK_API_KEYS', '')}"
+hf_api_keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+
 embeddings = HuggingFaceInferenceAPIEmbeddings(
-    model_name="BAAI/bge-small-en-v1.5",
-    api_key=settings.HUGGINGFACE_API_KEY or os.environ.get("HUGGINGFACE_API_KEY", "")
+    primary_model="BAAI/bge-small-en-v1.5",
+    api_keys=hf_api_keys or [os.environ.get("HUGGINGFACE_API_KEY", "")]
 )
 
 # Convert connection string from psycopg2 format to standard postgresql format for psycopg3 (langchain-postgres)
