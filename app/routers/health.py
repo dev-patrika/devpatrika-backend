@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger("dev-patrika")
 router = APIRouter(prefix="/health", tags=["Health"])
 
-@router.get("")
+@router.api_route("", methods=["GET", "HEAD"])
 def health_check(session: Session = Depends(get_session)):
     try:
         # Execute simple query to verify database connection

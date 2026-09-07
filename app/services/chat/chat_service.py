@@ -31,9 +31,10 @@ def get_selected_llm(model_name: str, temperature: float = 0.4):
     gemini_key = settings.GEMINI_API_KEY
     
     if "gemini" in model_lower:
-        logger.info(f"Instantiating Google Gemini Chat model ('gemini-2.5-flash')")
+        gemini_model = "gemini-2.5-pro" if "pro" in model_lower else "gemini-2.5-flash"
+        logger.info(f"Instantiating Google Gemini Chat model ('{gemini_model}')")
         return ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model=gemini_model,
             temperature=temperature,
             api_key=gemini_key or "placeholder_key"
         )
@@ -65,11 +66,11 @@ def get_selected_llm(model_name: str, temperature: float = 0.4):
             )
     else:
         # Default or explicit Groq
-        selected_id = "llama-3.3-70b-versatile"
-        if "llama3-8b" in model_lower:
-            selected_id = "llama3-8b-8192"
-        elif "mixtral" in model_lower:
-            selected_id = "mixtral-8x7b-32768"
+        selected_id = "openai/gpt-oss-120b"
+        if "20b" in model_lower:
+            selected_id = "openai/gpt-oss-20b"
+        elif "qwen" in model_lower:
+            selected_id = "qwen/qwen3.6-27b"
             
         logger.info(f"Instantiating Groq Chat model ('{selected_id}')")
         return ChatGroq(
@@ -100,7 +101,7 @@ def process_chat_message(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at.desc())
-        .limit(10)
+        .limit(20)
     )
     db_history = session.exec(history_statement).all()
     # Reverse to keep chronological order
@@ -264,7 +265,7 @@ def stream_chat_message(
         select(ChatMessage)
         .where(ChatMessage.session_id == session_id)
         .order_by(ChatMessage.created_at.desc())
-        .limit(10)
+        .limit(20)
     )
     db_history = session.exec(history_statement).all()
     db_history.reverse()
@@ -276,17 +277,37 @@ def stream_chat_message(
         else:
             langchain_messages.append(AIMessage(content=msg.content))
             
-    # 2. RAG Context Retrieval
-    wiki_context = semantic_search_wiki(session, query=message_content, limit=3, threshold=0.3)
-    news_context = semantic_search_news(session, query=message_content, limit=3, threshold=0.3)
-    
+    # 2. RAG Context Retrieval (Wiki, News, & GitHub Radar)
+    wiki_context = semantic_search_wiki(session, query=message_content, limit=3, threshold=0.25)
+    if not wiki_context:
+        wiki_context = semantic_search_wiki(session, query=message_content, limit=2, threshold=0.15)
+        
+    news_context = semantic_search_news(session, query=message_content, limit=3, threshold=0.25)
+    if not news_context:
+        news_context = semantic_search_news(session, query=message_content, limit=2, threshold=0.15)
+        
+    # Query GitHub Radar matching repositories
+    from app.models.github_radar import GitHubRadar
+    words = [w.strip() for w in message_content.lower().split() if len(w.strip()) > 2]
+    github_context = []
+    if words:
+        stmt = select(GitHubRadar)
+        repos = session.exec(stmt).all()
+        for r in repos:
+            name = r.repo_name.lower()
+            desc = (r.description or "").lower()
+            if any(word in name or word in desc for word in words) or any(w in message_content.lower() for w in ["repo", "github", "trending", "stars", "open-source", "project"]):
+                github_context.append(r)
+                if len(github_context) >= 3:
+                    break
+
     # 3. Format Context and compile mapping list
     context_docs = []
     citation_map = {}
     source_idx = 1
     
     for wiki in wiki_context:
-        doc_text = f"Source [{source_idx}] (Dev Wiki Concept):\nTerm: {wiki.term}\nDefinition: {wiki.definition}\n"
+        doc_text = f"Source [{source_idx}] (Dev Wiki Concept):\nTerm: {wiki.term}\nDefinition: {wiki.definition}\nWhy Trending: {wiki.why_trending}\n"
         context_docs.append(doc_text)
         citation_map[source_idx] = {
             "id": source_idx,
@@ -306,19 +327,30 @@ def stream_chat_message(
             "source": news.source or "Tech Feed"
         }
         source_idx += 1
+
+    for repo in github_context:
+        doc_text = f"Source [{source_idx}] (GitHub Radar Repository):\nRepository: {repo.repo_name}\nStars: {repo.stars_count}\nDescription: {repo.description or ''}\nWhy it matters: {repo.why_it_matters_summary or ''}\n"
+        context_docs.append(doc_text)
+        citation_map[source_idx] = {
+            "id": source_idx,
+            "title": f"GitHub: {repo.repo_name}",
+            "url": repo.repo_url,
+            "source": "GitHub Radar"
+        }
+        source_idx += 1
         
     compiled_context_text = "\n\n".join(context_docs) if context_docs else "No specific document references found."
     
     # 4. Build System & Human Prompts
     system_prompt = (
-        "You are the Dev Patrika AI Assistant, an expert advisor for developers and technology managers.\n"
+        "You are devBot, the Dev Patrika AI Assistant and senior technology advisor.\n"
         "Dev Patrika is a Developer Intelligence Engine built using FastAPI, SQLModel, LangChain, and LangGraph. "
         "It automatically aggregates developer news, trending GitHub repositories, technical wikis, and arXiv preprints from platforms like Hacker News, Dev.to, arXiv, and GitHub, summarizes them using AI, and stores them in a Neon Postgres (pgvector) database for semantic search.\n\n"
         "Here are the rules for your responses:\n"
-        "1. Answer the user's question clearly, professionally, and technically using the provided Reference Documents context.\n"
+        "1. Answer the user's question clearly, professionally, technically, and concisely using the provided Reference Documents context.\n"
         "2. If you use information from a Source Document, you MUST cite the source index in brackets, e.g. [1], [2] next to the text where it is used. "
         "Do not make up sources outside the provided reference list.\n"
-        "3. If the context does not contain the answer, rely on your parametric knowledge to answer politely, but DO NOT include any citations in that case.\n\n"
+        "3. If the context does not contain enough info, utilize your pre-trained knowledge but clearly distinguish it from database facts.\n\n"
         "Reference Documents Context:\n"
         f"{compiled_context_text}"
     )
@@ -330,9 +362,14 @@ def stream_chat_message(
     ])
     
     try:
-        llm = get_selected_llm(model_name)
-        chain = prompt | llm
-        
+        try:
+            llm = get_selected_llm(model_name)
+            chain = prompt | llm
+        except Exception as llm_init_err:
+            logger.warning(f"Primary model init failed ({llm_init_err}), falling back to Gemini.")
+            llm = get_selected_llm("gemini-2.5-flash")
+            chain = prompt | llm
+
         full_answer = ""
         for chunk in chain.stream({
             "chat_history": langchain_messages,
