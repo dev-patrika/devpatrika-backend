@@ -111,7 +111,14 @@ def check_conflicts_node(state: WikiCuratorAgentState) -> dict:
         
         if existing:
             logger.info(f"Conflict found: Exact name match for term '{term}'. Adding to conflict merge list.")
-            conflicting_terms.append({"term": term, "existing_entry": existing})
+            conflicting_terms.append({
+                "term": term,
+                "existing_entry_id": existing.id,
+                "existing_term": existing.term,
+                "existing_definition": existing.definition,
+                "existing_why_trending": existing.why_trending,
+                "existing_links": existing.related_links or []
+            })
             continue
             
         # 2. Semantic Overlap Check (similarity threshold 0.8)
@@ -119,7 +126,14 @@ def check_conflicts_node(state: WikiCuratorAgentState) -> dict:
         if semantic_matches:
             match = semantic_matches[0]
             logger.info(f"Conflict found: Semantic match for term '{term}' overlapping with existing term '{match.term}'. Adding to conflict merge list.")
-            conflicting_terms.append({"term": term, "existing_entry": match})
+            conflicting_terms.append({
+                "term": term,
+                "existing_entry_id": match.id,
+                "existing_term": match.term,
+                "existing_definition": match.definition,
+                "existing_why_trending": match.why_trending,
+                "existing_links": match.related_links or []
+            })
             continue
             
         logger.info(f"No conflicts detected for term '{term}'. Adding to new terms list.")
@@ -200,7 +214,11 @@ def merge_definitions_node(state: WikiCuratorAgentState) -> dict:
     
     for item in conflicting_terms:
         term = item["term"]
-        existing_entry = item["existing_entry"]
+        entry_id = item["existing_entry_id"]
+        existing_term = item["existing_term"]
+        existing_definition = item["existing_definition"]
+        existing_why_trending = item["existing_why_trending"]
+        existing_links = item["existing_links"]
         
         prompt = ChatPromptTemplate.from_messages([
             ("system", (
@@ -226,14 +244,19 @@ def merge_definitions_node(state: WikiCuratorAgentState) -> dict:
         try:
             chain = prompt | structured_llm
             result = chain.invoke({
-                "existing_term": existing_entry.term,
-                "existing_definition": existing_entry.definition,
-                "existing_why_trending": existing_entry.why_trending,
-                "existing_links": existing_entry.related_links or [],
+                "existing_term": existing_term,
+                "existing_definition": existing_definition,
+                "existing_why_trending": existing_why_trending,
+                "existing_links": existing_links,
                 "new_term": term
             })
             
             if result:
+                existing_entry = session.get(WikiEntry, entry_id)
+                if not existing_entry:
+                    logger.warning(f"Could not find existing entry with ID '{entry_id}' to merge.")
+                    continue
+                    
                 existing_entry.definition = result.definition
                 existing_entry.why_trending = result.why_trending
                 # Merge and unique-ify links
@@ -251,7 +274,7 @@ def merge_definitions_node(state: WikiCuratorAgentState) -> dict:
                 logger.info(f"Successfully resolved conflict and merged term '{existing_entry.term}'.")
         except Exception as e:
             session.rollback()
-            logger.error(f"Failed to merge and save entry for '{existing_entry.term}': {str(e)}")
+            logger.error(f"Failed to merge and save entry for '{existing_term}': {str(e)}")
             errors += 1
             
     return {
@@ -264,21 +287,26 @@ def merge_definitions_node(state: WikiCuratorAgentState) -> dict:
 # Conditional Edge Functions
 # =====================================================================
 
-def route_after_conflicts(state: WikiCuratorAgentState) -> List[str]:
-    """Route after checking conflicts. Executes both merging and definition generation if needed."""
-    routes = []
+def route_after_conflicts(state: WikiCuratorAgentState) -> str:
+    """Route after checking conflicts. Runs generate_definitions if missing terms exist, else moves to merge_definitions or finishes."""
     if len(state.get("missing_terms", [])) > 0:
-        routes.append("generate_definitions")
+        return "generate_definitions"
     if len(state.get("conflicting_terms", [])) > 0:
-        routes.append("merge_definitions")
-    return routes if routes else [END]
+        return "merge_definitions"
+    return END
+
+def route_after_generate(state: WikiCuratorAgentState) -> str:
+    """Route after generating definitions. If conflicts need merging, moves to merge_definitions, else finishes."""
+    if len(state.get("conflicting_terms", [])) > 0:
+        return "merge_definitions"
+    return END
 
 # =====================================================================
 # Build and Compile Graph
 # =====================================================================
 
 def build_wiki_curator_graph() -> StateGraph:
-    """Constructs the conflict-resolving Wiki Curator Agent graph."""
+    """Constructs the conflict-resolving Wiki Curator Agent graph with sequential execution."""
     graph = StateGraph(WikiCuratorAgentState)
     
     # Add Nodes
@@ -291,14 +319,18 @@ def build_wiki_curator_graph() -> StateGraph:
     graph.add_edge(START, "extract_terms")
     graph.add_edge("extract_terms", "check_conflicts")
     
-    # Conditional branching to run merging and generating in parallel/conditional streams
+    # Sequential conditional branching
     graph.add_conditional_edges("check_conflicts", route_after_conflicts, {
         "generate_definitions": "generate_definitions",
         "merge_definitions": "merge_definitions",
         END: END
     })
     
-    graph.add_edge("generate_definitions", END)
+    graph.add_conditional_edges("generate_definitions", route_after_generate, {
+        "merge_definitions": "merge_definitions",
+        END: END
+    })
+    
     graph.add_edge("merge_definitions", END)
     
     return graph.compile()
